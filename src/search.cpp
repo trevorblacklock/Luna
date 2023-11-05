@@ -449,7 +449,7 @@ moves_loop:
     if (!pos->is_legal(m))
       continue;
 
-    /*if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
+    if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
       int moveDepth = std::max(1, 1 + depth - LMR[depth][legalMoves]);
 
       if (quiet) {
@@ -471,16 +471,16 @@ moves_loop:
           && hd->get_history(pos, m,
             get_previous_historymove(pos),
             get_previous_historymove(pos, 2))
-            < std::min(140 - 300 * (depth * (depth + isImproving)), 0))
+            < std::min(140 - 500 * (depth * (depth + isImproving)), 0))
           continue;
 
       }
 
       if (moveDepth <= 5 + quiet * 3
-        && (piece_type(pos->pc_sq(to)) < piece_type(pos->pc_sq(from)))
-        && (isCapture ? see : pos->see_eval(m) <= (quiet ? -40 * moveDepth : -100 * moveDepth)))
+        && isCapture
+        && (see <= -200 * moveDepth))
         continue;
-    }*/
+    }
 
     // basic lmr for now
     int lmr = (legalMoves < 2 - (ttMove != MOVE_NONE) + ispv || depth <= 2
@@ -494,7 +494,7 @@ moves_loop:
                                          get_previous_historymove(pos, 2));
 
       // decrease/increase lmr based on moves history
-      lmr -= std::clamp(hist / 2500, -2, 2);
+      lmr -= std::clamp(hist / 3000, -3, 3);
       // increase lmr if position is not improving
       lmr += !isImproving;
       // decrease lmr if we are in a pv node
