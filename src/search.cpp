@@ -285,10 +285,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     }
   }
 
-  // clamp the standpat, this is for mating values that have been incorrectly placed
-  // as static evaluations, this messes up mate finding and is necessary
-  standpat = std::clamp(standpat, -(int)VALUE_TB_WIN, (int)VALUE_TB_WIN);
-
   // set the historic eval before we adjust it using the TT
   hd->set_eval_hist(us, standpat, ply);
   bool isImproving = inCheck ? false : hd->is_improving(us, standpat, ply);

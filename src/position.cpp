@@ -789,7 +789,7 @@ constexpr float phaseValues[PIECE_TYPE_NB] {
 
 int Position::evaluate() {
 
-  int score = std::clamp(eval.propagate(side), (int)VALUE_TB_LOSS, (int)VALUE_TB_WIN);
+  int score = eval.propagate(side);
 
   constexpr float eval_mg_scale = 1.5;
   constexpr float eval_eg_scale = 1.15;
@@ -800,6 +800,6 @@ int Position::evaluate() {
                 - phaseValues[BISHOP] * popcnt(pt_bb(BISHOP))
                 - phaseValues[ROOK] * popcnt(pt_bb(ROOK))
                 - phaseValues[QUEEN] * popcnt(pt_bb(QUEEN))) / phase_sum;
-  return (+ eval_mg_scale - phase * (eval_mg_scale - eval_eg_scale)) * score;
+  return std::clamp(static_cast<int>((+ eval_mg_scale - phase * (eval_mg_scale - eval_eg_scale)) * score), (int)VALUE_TB_LOSS, (int)VALUE_TB_WIN);
 }
 }
