@@ -252,8 +252,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // only check for a cutoff if the node is not pv
   if (found && ttScore != VALUE_NONE && !sd->extMove) {
     // set the static eval and the ttmove from the table
-    standpat = tten->eval();
     ttMove = tten->move();
+    standpat = tten->eval();
     // check if tt value is good enough to be returned
     if (!ispv &&
        (tten->depth() > (depth - (sd->id % 2 == 1))) &&
@@ -285,6 +285,10 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     }
   }
 
+  // clamp the standpat, this is for mating values that have been incorrectly placed
+  // as static evaluations, this messes up mate finding and is necessary
+  standpat = std::clamp(standpat, -(int)VALUE_TB_WIN, (int)VALUE_TB_WIN);
+
   // set the historic eval before we adjust it using the TT
   hd->set_eval_hist(us, standpat, ply);
   bool isImproving = inCheck ? false : hd->is_improving(us, standpat, ply);
@@ -292,8 +296,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // adjust the eval using the TT
   // be sure to not adjust the eval incorrectly and make sure eval is not VALUE_NONE
   if (found) {
-    // setup standpat
-    standpat = tten->eval();
     // use TT score as a better eval
     if (  (tten->bound() == BOUND_EXACT)
        || (tten->bound() == BOUND_LOWER && standpat < ttScore)
@@ -303,10 +305,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   }
   // ensure standpat has a value
   if (standpat == VALUE_NONE) standpat = pos->evaluate();
-
-  // clamp the standpat, this is for mating values that have been incorrectly placed
-  // as static evaluations, this messes up mate finding and is necessary
-  standpat = std::clamp(standpat, -(int)VALUE_TB_WIN, (int)VALUE_TB_WIN);
 
   // reset the past killer moves
   hd->reset_killers(us, ply);
@@ -451,7 +449,7 @@ moves_loop:
     if (!pos->is_legal(m))
       continue;
 
-    if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
+    /*if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
       int moveDepth = std::max(1, 1 + depth - LMR[depth][legalMoves]);
 
       if (quiet) {
@@ -478,11 +476,11 @@ moves_loop:
 
       }
 
-      /*if (moveDepth <= 5 + quiet * 3
-        && isCapture
-        && (see <= (quiet ? -40 * moveDepth : -100 * moveDepth)))
-        continue;*/
-    }
+      if (moveDepth <= 5 + quiet * 3
+        && (piece_type(pos->pc_sq(to)) < piece_type(pos->pc_sq(from)))
+        && (isCapture ? see : pos->see_eval(m) <= (quiet ? -40 * moveDepth : -100 * moveDepth)))
+        continue;
+    }*/
 
     // basic lmr for now
     int lmr = (legalMoves < 2 - (ttMove != MOVE_NONE) + ispv || depth <= 2
@@ -496,7 +494,7 @@ moves_loop:
                                          get_previous_historymove(pos, 2));
 
       // decrease/increase lmr based on moves history
-      lmr -= hist / 2500;
+      lmr -= std::clamp(hist / 2500, -2, 2);
       // increase lmr if position is not improving
       lmr += !isImproving;
       // decrease lmr if we are in a pv node
