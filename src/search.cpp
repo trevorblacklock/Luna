@@ -7,7 +7,7 @@
 namespace Luna {
 
 // info string stuff
-void print_info_string(Search *search, int depth, int score, pvLine &pv) {
+void print_info_string(Search *search, int depth, int score, PvLine &pv) {
   U64 nodes = search->get_nodes();
   int seldepth = search->get_seldepth();
   U64 time = search->timeMan->elapsed_time();
@@ -34,24 +34,6 @@ void init_lmr() {
   for (int d = 0; d < MAX_INTERNAL_PLY; d++)
     for (int m = 0; m < MAX_MOVES; m++)
       LMR[d][m] = 1.25 + log(d) * log(m) * 100 / 300;
-}
-
-
-// base operators for pv struct
-Move& pvLine::operator()(int depth) {return pv[depth];}
-Move pvLine::operator()(int depth) const {return pv[depth];}
-pvLine& pvTable::operator()(int depth) {return pvs[depth];}
-pvLine pvTable::operator()(int depth) const {return pvs[depth];}
-// pv functions used to clear and update the pv
-void pvTable::reset() {
-  for (auto &r : pvs) {
-    r.length = 0;
-  }
-}
-void pvTable::update(int ply, Move m) {
-  pvs[ply](0) = m;
-  memcpy(&pvs[ply](1), &pvs[ply + 1](0), sizeof(Move) * pvs[ply + 1].length);
-  pvs[ply].length = pvs[ply + 1].length + 1;
 }
 
 // setup threads given a number
@@ -86,9 +68,9 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     // reset each thread
     for (size_t i = 0; i < ths.size(); i++) {
       ths[i].id = i;
-      ths[i].nodes = 0;
-      ths[i].seldepth = 0;
-      ths[i].timeout = false;
+      ths[i].searchInfo.nodes = 0;
+      ths[i].searchInfo.seldepth = 0;
+      ths[i].searchInfo.timeout = false;
     }
     // setup this function to be called with all other threads except the main one
     for (int t = 1; t < threadcnt; t++) {
@@ -104,12 +86,12 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   // this is for the threads to use individually in their search so nothing overlaps
   Position newPos{*pos};
   // set the force stop to false
-  sd->timeout = false;
+  sd->searchInfo.timeout = false;
   // start iterative deepening
   int d;
   for (d = 1; d <= searchDepth; d++) {
     // reset the pv table
-    sd->pv.reset();
+    sd->pvTable.reset();
     // use aspiration windows to speed up searches based on score recieved
     // only use them past depth 6 to not interfere with the fast initial searches
     if (d <= 6) {
@@ -147,7 +129,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     }
     if (!tm->can_continue()) break;
     if (id == 0 && this->infoStrings) {
-      print_info_string(this, d, score, sd->pv(0));
+      print_info_string(this, d, score, sd->pvTable(0));
     }
   }
   // when main thread is done return best move
@@ -182,37 +164,37 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   int ply = pos->get_ply();
 
   // force a stop for node limit
-  if (timeMan->node_limit.enabled && timeMan->node_limit.val <= sd->nodes) {
+  if (timeMan->node_limit.enabled && timeMan->node_limit.val <= sd->searchInfo.nodes) {
     timeMan->stop_search();
   }
 
   // reset our pv table length unless ply is exceeded
-  sd->pv(ply).length = 0;
+  sd->pvTable(ply).length = 0;
 
   // check for a force stop
   if (timeMan->stop) {
-    sd->timeout = true;
+    sd->searchInfo.timeout = true;
     return beta;
   }
 
   // if time is out we fail high to stop the search and we only check every 1024 nodes
-  if (sd->nodes % 1024 == 0 && sd->id == 0 && !timeMan->can_continue()) {
-    sd->timeout = true;
+  if (sd->searchInfo.nodes % 1024 == 0 && sd->id == 0 && !timeMan->can_continue()) {
+    sd->searchInfo.timeout = true;
     timeMan->stop_search();
     return beta;
   }
 
   // check for a draw here
   if (ply && pos->is_draw()) {
-    return 8 - (sd->nodes & 0xF);
+    return 8 - (sd->searchInfo.nodes & 0xF);
   }
 
   // find if player is in check
   bool inCheck = pos->checks();
 
   // keep track of seldepth
-  if (ply > sd->seldepth)
-    sd->seldepth = ply;
+  if (ply > sd->searchInfo.seldepth)
+    sd->searchInfo.seldepth = ply;
 
   // check for overflows
   if (depth <= 0 || depth > MAX_PLY || ply > MAX_SEARCH_PLY)
@@ -227,7 +209,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
 
   // increment the nodes
-  sd->nodes++;
+  sd->searchInfo.nodes++;
 
   // get all the search info needed
   History*     hd        = &sd->historyData;
@@ -371,7 +353,7 @@ moves_loop:
   if (depth >= 4 && !ttMove) depth--;
 
   // setup movegen
-  MoveGen* mg = &sd->moves[ply];
+  MoveGen* mg = &sd->moveGen[ply];
 
   // probcut
   int betaCut = beta + 180 - 60 * isImproving;
@@ -382,8 +364,7 @@ moves_loop:
     && !(ttMove && tten->depth() >= depth - 3 && ttScore < betaCut)) {
 
     // init the generator
-    HistoryMove blank {};
-    mg->init(pos, hd, ply, MOVE_NONE, blank, blank, QSEARCH);
+    mg->init(pos, hd, ply, MOVE_NONE, QSEARCH);
 
     // loop through moves
     Move m;
@@ -414,15 +395,14 @@ moves_loop:
   }
 
   int legalMoves = 0;
-  U64 prevNodes = sd->nodes;
+  U64 prevNodes = sd->searchInfo.nodes;
   U64 bestNodes = 0;
 
   // initialize the move generator
   Move m;
   int moveCnt = 0;
   int quiets = 0;
-  mg->init(pos, hd, ply, ttMove, get_previous_historymove(pos),
-           get_previous_historymove(pos, 2), PV_SEARCH);
+  mg->init(pos, hd, ply, ttMove, PV_SEARCH);
 
   // loop through all the pseudo-legal moves until none remain,
   // legality is checked before playing a move rather than before
@@ -464,10 +444,8 @@ moves_loop:
           continue;
 
         if (!inCheck
-          && hd->get_history(pos, m,
-            get_previous_historymove(pos),
-            get_previous_historymove(pos, 2))
-            < std::min(140 - 500 * (depth * (depth + isImproving)), 0))
+          && hd->get_history(pos, m)
+            < std::min(140 - 300 * (depth * (depth + isImproving)), 0))
           continue;
 
       }
@@ -486,11 +464,10 @@ moves_loop:
     if (legalMoves && depth > 2 && us == sd->nmpSide) lmr++;
 
     if (lmr) {
-      int hist = hd->get_history(pos, m, get_previous_historymove(pos),
-                                         get_previous_historymove(pos, 2));
+      int hist = hd->get_history(pos, m);
 
       // decrease/increase lmr based on moves history
-      lmr -= std::clamp(hist / 3000, -3, 3);
+      lmr -= std::clamp(hist / 5000, -5, 5);
       // increase lmr if position is not improving
       lmr += !isImproving;
       // decrease lmr if we are in a pv node
@@ -505,13 +482,11 @@ moves_loop:
       // limit the lmr
       if (lmr > MAX_PLY) lmr = 0;
       if (lmr > depth - 2) lmr = depth - 2;
-
-      if (hist > 4000 * (2 - isCapture)) lmr = 0;
     }
 
     moveCnt++;
 
-    U64 nodeCount = sd->nodes;
+    U64 nodeCount = sd->searchInfo.nodes;
     int extension = 0;
 
     // single move extensions
@@ -553,8 +528,7 @@ moves_loop:
         else if (ttScore <= score)
           extension = -1;
 
-        mg->init(pos, hd, ply, ttMove, get_previous_historymove(pos),
-                 get_previous_historymove(pos, 2), PV_SEARCH);
+        mg->init(pos, hd, ply, ttMove, PV_SEARCH);
         m = mg->next();
       }
       else if (givesCheck
@@ -603,12 +577,12 @@ moves_loop:
         hd->bestMove = m;
       }
       if (ispv && sd->id == 0)
-        sd->pv.update(ply, m);
-      bestNodes = sd->nodes - nodeCount;
+        sd->pvTable.update(ply, m);
+      bestNodes = sd->searchInfo.nodes - nodeCount;
     }
     // check for a beta cutoff
     if (score >= beta) {
-      if (!sd->timeout && !sd->extMove) {
+      if (!sd->searchInfo.timeout && !sd->extMove) {
         // put the beta cutoff into the TT
         TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, ispv);
       }
@@ -639,7 +613,7 @@ moves_loop:
   }
 
   // write the current scores to the hash table
-  if (!sd->timeout && !sd->extMove) {
+  if (!sd->searchInfo.timeout && !sd->extMove) {
     TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), bestMove,
             bestMove && ispv ? BOUND_EXACT : BOUND_UPPER, ispv);
   }
@@ -651,7 +625,7 @@ moves_loop:
 int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool ispv) {
 
   // start with increasing the nodes searched
-  sd->nodes++;
+  sd->searchInfo.nodes++;
 
   // once again get all the useful info
   History* hd        = &sd->historyData;
@@ -666,7 +640,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool isp
 
   // check for a draw here
   if (ply && pos->is_draw()) {
-    return 8 - (sd->nodes & 0xF);
+    return 8 - (sd->searchInfo.nodes & 0xF);
   }
 
   // probe the transposition table for any exisiting entries
@@ -711,12 +685,11 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool isp
     alpha = bestScore;
 
   // setup movegen
-  MoveGen* mg = &sd->moves[ply];
+  MoveGen* mg = &sd->moveGen[ply];
 
   // initialize the move generator
   Move m;
-  mg->init(pos, hd, ply, MOVE_NONE, get_previous_historymove(pos),
-           get_previous_historymove(pos, 2), QSEARCH + inCheck);
+  mg->init(pos, hd, ply, MOVE_NONE, QSEARCH + inCheck);
 
   while ((m = mg->next(false))) {
     // check for legality
@@ -771,13 +744,13 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool isp
 
 U64 Search::get_nodes() const {
   U64 nodes = 0;
-  for (const auto &r : ths) nodes += r.nodes;
+  for (const auto &r : ths) nodes += r.searchInfo.nodes;
   return nodes;
 }
 
 int Search::get_seldepth() const {
   int max = 0;
-  for (const auto &r : ths) max = std::max(max, r.seldepth);
+  for (const auto &r : ths) max = std::max(max, r.searchInfo.seldepth);
   return max;
 }
 
