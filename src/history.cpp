@@ -2,44 +2,70 @@
 
 namespace Luna {
 
-// this only works prior to us making the move
-int History::get_history(Position *p, Move m, HistoryMove previous, HistoryMove followup) const {
-  // we use capture history if the move is a capture
-  bool isCapture = p->is_capture(m);
-  if (isCapture)
-    return get_capture_hist(p->piece_moved(m), to_sq(m), piece_type(p->pc_sq(to_sq(m))));
-  // we use all our other histories for quiet moves
-  // quiet moves use more heuristics since they are more difficult to evaluate
-  else {
-    // we also calculate basic threats to help when scoring a quiet move
-    U64 threats, threatsPawn, threatsMinor, threatsRook;
-    Color us = p->get_side();
-    // calculate threats
-    threatsPawn = p->attacks_by(!us, PAWN);
-    threatsMinor = p->attacks_by(!us, KNIGHT) | p->attacks_by(!us, BISHOP) | threatsPawn;
-    threatsRook = p->attacks_by(!us, ROOK) | threatsMinor;
-    threats = (p->pc_bb(QUEEN, us) & threatsRook)
-            | (p->pc_bb(ROOK, us) & threatsMinor)
-            | ((p->pc_bb(KNIGHT, us) | p->pc_bb(BISHOP, us)) & threatsPawn);
+int History::get_history(Position *p, Move m) const {
+  assert(m);
+  int     val;
+  U64     threats, threatByPawn, threatByMinor, threatByRook;
+  int     ply  = p->get_ply();
+  Color   us   = p->get_side();
+  Square  from = from_sq(m);
+  Square  to   = to_sq(m);
+  Piece   pc   = p->pc_sq(from);
+  Piece   cap  = p->pc_sq(to);
 
-    int butterfly = get_butterfly(us, m);
-    int counter = (get_counter_hist(previous.pc, to_sq(previous.m)) == m) ? 5000 : 0;
-    int follow = (get_followup_hist(followup.pc, to_sq(followup.m)) == m) ? 3000 : 0;
-    int thr = (threats & square_bb(from_sq(m)) ?
-              (piece_type(p->piece_moved(m)) == QUEEN && !(to_sq(m) & threatsRook) ? 50000
-             : piece_type(p->piece_moved(m)) == ROOK && !(to_sq(m) & threatsMinor) ? 25000
-             : !(to_sq(m) & threatsPawn) ? 15000 : 0) : 0);
-    return ((2 * butterfly + 2 * counter + 2 * follow) / 3) + thr;
+  if (p->is_capture(m)) {
+    // retrieve capture histories
+    val = (10 * PieceValue[MG][cap] + get_capture_hist(pc, to, piece_type(cap))) / 15;
   }
+  else {
+
+    PieceType pt = piece_type(pc);
+    U64 t = square_bb(to);
+
+    // initialize threats
+    threatByPawn  = p->attacks_by(!us, PAWN);
+    threatByMinor = p->attacks_by(!us, KNIGHT) | p->attacks_by(!us, BISHOP) | threatByPawn;
+    threatByRook  = p->attacks_by(!us, ROOK) | threatByMinor;
+    threats       = (p->pc_bb(QUEEN, us) & threatByRook)
+                  | (p->pc_bb(ROOK, us) & threatByMinor)
+                  | ((p->pc_bb(KNIGHT, us) | p->pc_bb(BISHOP, us)) & threatByPawn);
+
+    // main histories
+    val = 2 * get_butterfly(us, m);
+    val += 2 * get_continuation_hist(pc, to, ply);
+    val += get_continuation_hist(pc, to, ply - 1);
+    val += get_continuation_hist(pc, to, ply - 2) / 4;
+    val += get_continuation_hist(pc, to, ply - 3);
+    val += get_continuation_hist(pc, to, ply - 5);
+
+    // bonus for landing on a check square
+    val += bool(p->checker_sq(pt) & square_bb(to)) * 15000;
+
+    // bonus for escaping capture
+    val += threats & square_bb(from) ? (pt == QUEEN && !(t & threatByRook) ? 50000
+                                      : pt == ROOK && !(t & threatByMinor) ? 25000
+                                      : !(t & threatByPawn)                ? 15000
+                                      : 0) : 0;
+
+    // if piece is moving into a threat
+    val -= !(threats & square_bb(from)) ? (pt == QUEEN ? bool(t & threatByRook) * 50000
+                                                       + bool(t & threatByMinor) * 10000
+                                                       + bool(t & threatByPawn) * 20000
+                                        : pt == ROOK ? bool(t & threatByMinor) * 25000
+                                                     + bool(t & threatByPawn) * 10000
+                                        : pt != PAWN ? bool(t & threatByPawn) * 15000
+                                        : 0) : 0;
+  }
+
+  return val;
 }
 
 void History::clear() {
   memset(killers, 0, sizeof(killers));
   memset(butterflyHistory, 0, sizeof(butterflyHistory));
   memset(captureHistory, 0, sizeof(captureHistory));
-  memset(counterHistory, 0, sizeof(counterHistory));
-  memset(followupHistory, 0, sizeof(followupHistory));
   memset(evalHistory, 0, sizeof(evalHistory));
+  memset(continuationHistory, 0, sizeof(continuationHistory));
 }
 
 void History::set_killer(Color side, Move m, int ply) {
@@ -55,6 +81,11 @@ bool History::is_killer(Color side, Move m, int ply) {
 
 void History::set_eval_hist(Color side, int eval, int ply) {
   this->evalHistory[side][ply] = eval;
+}
+
+void History::set_continuation_hist(Piece pc, Square sq, int ply, int val) {
+  assert(ply < MAX_INTERNAL_PLY && ply + 7 >= 0);
+  this->continuationHistory[ply + 7][pc][sq] = val;
 }
 
 void History::set_capture_hist(Position *p, Move m, int val) {
@@ -73,35 +104,32 @@ void History::reset_killers(Color side, int ply) {
 }
 
 Move History::get_killer(Color side, int ply, int id) const {
-  return killers[side][ply][id];
+  return this->killers[side][ply][id];
 }
 
 int History::get_butterfly(Color side, Move m) const {
-  return butterflyHistory[side][m & 0xFFF];
+  return this->butterflyHistory[side][m & 0xFFF];
 }
 
 int History::get_capture_hist(Piece pc, Square to, PieceType pt) const {
-  return captureHistory[pc][to][pt];
+  return this->captureHistory[pc][to][pt];
 }
 
-Move History::get_counter_hist(Piece pc, Square to) const {
-  return counterHistory[pc][to];
-}
-
-Move History::get_followup_hist(Piece pc, Square to) const {
-  return followupHistory[pc][to];
+int History::get_continuation_hist(Piece pc, Square sq, int ply) const {
+  assert(ply < MAX_INTERNAL_PLY && ply + 7 >= 0);
+  return this->continuationHistory[ply + 7][pc][sq];
 }
 
 int History::get_eval_hist(Color side, int ply) const {
-  return evalHistory[side][ply];
+  return this->evalHistory[side][ply];
 }
 
 int64_t History::get_spent_effort(Square s1, Square s2) const {
-  return spentEffort[s1][s2];
+  return this->spentEffort[s1][s2];
 }
 
 int History::get_max_improvement(Square from, Square to) const {
-  return maxImprovement[from][to];
+  return this->maxImprovement[from][to];
 }
 
 bool History::is_improving(Color side, int eval, int ply) const {
@@ -109,12 +137,19 @@ bool History::is_improving(Color side, int eval, int ply) const {
   return true;
 }
 
-void History::update_butterfly(Color side, Move m, int val) {
-  butterflyHistory[side][sq_combo_idx(m)] += val - butterflyHistory[side][sq_combo_idx(m)] * abs(val) / 14000;
+void History::update_butterfly(Color side, Move m, int bonus) {
+  this->butterflyHistory[side][sq_combo_idx(m)] +=
+    bonus - this->butterflyHistory[side][sq_combo_idx(m)] * abs(bonus) / 7000;
 }
 
-void History::update_captures(Piece moved, Square to, PieceType cap, int val) {
-  captureHistory[moved][to][cap] += val - captureHistory[moved][to][cap] * abs(val) / 10000;
+void History::update_continuation(int ply, Piece pc, Square sq, int bonus) {
+  this->continuationHistory[ply][pc][sq] +=
+    bonus - this->continuationHistory[ply][pc][sq] * abs(bonus) / 25000;
+}
+
+void History::update_captures(Piece pc, Square to, PieceType cap, int bonus) {
+  this->captureHistory[pc][to][cap] +=
+    bonus - captureHistory[pc][to][cap] * abs(bonus) / 10000;
 }
 
 }
