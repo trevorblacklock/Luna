@@ -6,7 +6,7 @@ _MAKE := $(MAKE) --no-print-directory -C $(_THIS)
 
 # Compiler and sources
 CXX = g++
-_LIBS_WL := -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -fno-aggressive-loop-optimizations
+_LIBS_WL := -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -fno-aggressive-loop-optimizations $(CFLAGS)
 _LIBS := -pthread
 _CXXSRCS := $(_SRC)/*.cpp $(_SRC)/nn/*.cpp
 _CSRCS := $(_SRC)/syzygy/tbprobe.cpp
@@ -14,7 +14,7 @@ _SRCS := $(_CSRS) $(_CXXSRCS)
 
 # Engine name and version
 NAME = Luna
-MINOR = 0
+MINOR = 1
 MAJOR = 2
 MAKROS = -DMINOR_VERSION=$(MINOR) -DMAJOR_VERSION=$(MAJOR)
 
@@ -112,7 +112,7 @@ EXE_DIR := $(dir $(abspath $(EXE)))
 
 # BUILD FLAGS #
 
-override FLAGS := -std=c++17 -Wall -Wextra -Wshadow -DEVALFILE=\"$(EVALFILE)\" -g
+override FLAGS := -std=c++17 -Wall -Wextra -Wshadow -DEVALFILE=\"$(EVALFILE)\"
 LDFLAGS += " -lgcov --coverage"
 
 ifeq ($(VALGRIND),1)
@@ -120,7 +120,7 @@ ifeq ($(VALGRIND),1)
 endif
 
 ifeq ($(DEBUG),0)
-	override FLAGS += -DNDEBUG -Ofast -ffloat-store
+	override FLAGS += -DNDEBUG -Ofast -ffloat-store -g
 endif
 
 ifeq ($(PEXT),1)
@@ -262,6 +262,9 @@ valgrind:
 debug:
 	$(_MAKE) build DEBUG=1 NATIVE=1 PGO=0 LTO=1 DETECT=1 NAMING=$(NAMING) STATIC=1 EXE_NAME=$(EXE_NAME)
 
+prebuild:
+	$(_MAKE) prebuild DEBUG=0 NATIVE=1 PGO=0 LTO=1 DETECT=1 STATIC=1
+
 overview:
 	$(info NAME      : $(NAME))
 	$(info EXE       : $(EXE))
@@ -287,13 +290,16 @@ overview:
 build: updateNetwork overview
 	mkdir -p $(EXE_DIR)
     ifeq ($(PGO),1)
-		$(CXX) $(PGO_PRE_FLAGS)  $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
+		$(CXX) $(PGO_PRE_FLAGS) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
 		$(EXE_PGO) bench
 		$(CXX) $(PGO_POST_FLAGS) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
 		@rm -f $(EXE_DIR)*.gcda
     else
 		$(CXX) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
     endif
+
+prebuild: updateNetwork overview
+	$(CXX) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -c
 
 release:
 	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 AVX512=1
