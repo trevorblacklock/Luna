@@ -19,8 +19,7 @@ void MoveGen::init(Position *p) {
   generate<LEGAL>();
 }
 
-void MoveGen::init(Position *p, History *h, int ply, Move hash,
-                   HistoryMove previous, HistoryMove followup, int md) {
+void MoveGen::init(Position *p, History *h, int ply, Move hash, int md) {
   // set position
   psn = p;
   hst = h;
@@ -38,8 +37,6 @@ void MoveGen::init(Position *p, History *h, int ply, Move hash,
   searchedIdx = 0;
   // set moves
   ttMove = hash;
-  previousMove = previous;
-  followupMove = followup;
   killers[0] = h->get_killer(clr, ply, 0);
   killers[1] = h->get_killer(clr, ply, 1);
 }
@@ -121,12 +118,12 @@ void MoveGen::add_move(Move m, int type) {
         // compute scores with move histories
         // if score is above 0 then it is considered a good capture
         if (s >= 0) {
-          s += 100000 + hst->get_history(psn, m, previousMove, followupMove);
+          s += 100000 + hst->get_history(psn, m);
           goodCapNum++;
         }
         // score is less than 0 so it is a bad capture
         else {
-          s = 10000 + hst->get_history(psn, m, previousMove, followupMove);
+          s = 1000 + hst->get_history(psn, m);
         }
         captures.moves[captures.size] = m;
         captures.scores[captures.size++] = s;
@@ -143,7 +140,7 @@ void MoveGen::add_move(Move m, int type) {
         // if hashmove or killer move then don't add to list
         if (ttMove == m || killers[0] == m || killers[1] == m) return;
         quiets.moves[quiets.size] = m;
-        quiets.scores[quiets.size++] = hst->get_history(psn, m, previousMove, followupMove);
+        quiets.scores[quiets.size++] = hst->get_history(psn, m);
       }
       break;
   }
@@ -151,6 +148,7 @@ void MoveGen::add_move(Move m, int type) {
 
 void MoveGen::add_searched(Move m) {
   searched.moves[searchedIdx++] = m;
+  searched.size++;
 }
 
 Move MoveGen::next_capture() {
@@ -443,59 +441,6 @@ void MoveGen::generate(bool underpromo) {
     case LEGAL:
       gen_captures();
       gen_quiets();
-  }
-}
-
-// bonus to give when updating history moves
-static inline int hist_bonus(int depth) {
-  return std::min((10 * depth + 310) * depth - 330, 2000);
-}
-
-// main function to update all the move histories at the end of a search
-void MoveGen::update_history(int depth, int bestScore, int beta) {
-  // setup variables
-  Move       best     = searched.moves[searchedIdx - 1];
-  Color      us       = psn->get_side();
-  Piece      pcMoved  = psn->piece_moved(best);
-  PieceType  pcCap    = piece_type(psn->pc_sq(to_sq(best)));
-  int        bonus;
-
-  if (depth < 0) depth = 0;
-
-  // here we update the quiet stats
-  if (!psn->is_capture(best)) {
-    bonus = bestScore > beta + 200 ? hist_bonus(depth + 1) : hist_bonus(depth);
-    // increase for the best move
-    // ensure there is a previous move and followup move to use
-    if (previousMove.pc != NO_PIECE && previousMove.m != MOVE_NONE)
-      hst->counterHistory[previousMove.pc][to_sq(previousMove.m)] = best;
-    // ensure there is a followup move to use
-    if (followupMove.pc != NO_PIECE && followupMove.m != MOVE_NONE)
-      hst->followupHistory[followupMove.pc][to_sq(followupMove.m)] = previousMove.m;
-    // update the butterfly histories
-    hst->update_butterfly(us, best, bonus);
-    // decrease butterfly scores for the rest of the moves
-    for (int idx = 0; idx < searchedIdx - 1; idx++) {
-      Move m = searched.moves[idx];
-      hst->update_butterfly(us, m, -bonus);
-    }
-  }
-  // here we update the non quiet stats
-  else {
-    bonus = hist_bonus(depth + 1);
-    // increase for the best move
-    hst->update_captures(pcMoved, to_sq(best), pcCap, bonus);
-    // decrease for all other moves
-    for (int idx = 0; idx < searchedIdx - 1; idx++) {
-      Move m = searched.moves[idx];
-      if (!psn->is_capture(m))
-        hst->update_butterfly(us, m, -bonus);
-      else {
-        pcMoved = psn->piece_moved(m);
-        pcCap = piece_type(psn->pc_sq(to_sq(m)));
-        hst->update_captures(pcMoved, to_sq(m), pcCap, -bonus);
-      }
-    }
   }
 }
 }

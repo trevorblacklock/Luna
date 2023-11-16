@@ -31,10 +31,6 @@ struct MoveList {
 
 class MoveGen {
 private:
-// arrays to store moves and scores
-MoveList captures;
-MoveList quiets;
-MoveList searched;
 // stores see scores
 int seeScores[MAX_MOVES] = {0};
 // updates see score for current move
@@ -55,13 +51,15 @@ History *hst;
 bool skip; // if we should skip quiet moves or not
 Move ttMove;
 Move killers[2];
-HistoryMove previousMove;
-HistoryMove followupMove;
 
 public:
+// arrays to store moves and scores
+MoveList captures;
+MoveList quiets;
+MoveList searched;
+
 void init(Position *p);
-void init(Position *p, History *h, int ply, Move hash,
-          HistoryMove previous, HistoryMove followup, int md);
+void init(Position *p, History *h, int ply, Move hash, int md);
 
 Move next(bool underpromo = true);
 Move next_capture();
@@ -86,8 +84,5 @@ int get_see() {return currSee;}
 // functions related to skipping quiet moves
 void skip_quiets() {skip = true;}
 bool can_skip() const {return skip;}
-
-// function to update histories
-void update_history(int depth, int bestScore, int beta);
 };
 }
