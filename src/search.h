@@ -12,13 +12,13 @@ namespace Luna {
 
 struct SearchInfo {
   // store data relevant to the previous search
-  U64 nodes;
-  int depth;
-  int elapsed;
-  int score;
-  int seldepth;
-  bool timeout;
-  Move best;
+  U64   nodes;
+  int   depth;
+  int   elapsed;
+  int   score;
+  int   seldepth;
+  bool  timeout;
+  Move  best;
 };
 
 struct SearchData {
@@ -27,12 +27,13 @@ struct SearchData {
   int         ply;
   int         rootDepth;
   int         nmpMinPly;
+  bool        ttPv[MAX_INTERNAL_PLY + 1] = {0};
   Color       nmpSide;
   Move        extMove;
   PvTable     pvTable;
   SearchInfo  searchInfo;
   History     historyData;
-  int         doubleExtensions[MAX_INTERNAL_PLY + 1];
+  int         doubleExtensions[MAX_INTERNAL_PLY + 1] = {0};
   MoveGen     moveGen[MAX_INTERNAL_PLY + 1];
 
   SearchData();

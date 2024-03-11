@@ -120,7 +120,7 @@ ifeq ($(VALGRIND),1)
 endif
 
 ifeq ($(DEBUG),0)
-	override FLAGS += -DNDEBUG -Ofast -ffloat-store -g
+	override FLAGS += -DNDEBUG -O3 -ffloat-store -g
 endif
 
 ifeq ($(PEXT),1)
