@@ -40,17 +40,11 @@ EVALFILE := $(ROOT)/../networks/luna-00000000.nn
 # sse3 = yes/no					| -msse3				| use Intel Streaming SIMD extensions 3
 # sse41 = yes/no				| -msse4.1			| use Intel Streaming SIMD extensions 4.1
 # sse42 = yes/no				| -msse4.2			| use Intel Streaming SIMD extensions 4.2
-# avx = yes/no					|	-mavx					| use Intel Advanced Vector Instructions
 # avx2 = yes/no					| -mavx2				| use Intel Advanced Vector Instructions 2
 # avx512 = yes/no				| -mavx512bw		| use Intel Advanced Vector Instructions 512
 #==============================================================================
 
-# 2.1 options
-ifeq ($(ARCH), )
-	ARCH = native
-	CXXFLAGS += -march=native
-endif
-
+# 2.1 compilation options
 debug = no
 optimize = yes
 popcnt = no
@@ -60,7 +54,6 @@ sse2 = no
 sse3 = no
 sse41 = no
 sse42 = no
-avx = no
 avx2 = no
 avx512 = no
 
@@ -75,12 +68,17 @@ POSTPGOFLAGS = -fprofile-use -fno-peel-loops -fno-tracer -lgcov
 ifeq ($(OS), Windows_NT)
 	CXXFLAGS += -static -pthread
 else
-ifeq ($(OS), LINUX)
+ifeq ($(UNAME), Linux)
 	CXXFLAGS += -lpthread
 endif
 endif
 
 # 2.3 Arch specific flags
+ifeq ($(ARCH),)
+	ARCH = native
+	CXXFLAGS += -march=native
+endif
+
 ifeq ($(findstring x86-64, $(ARCH)), x86-64)
 	sse2 = yes
 endif
@@ -117,7 +115,6 @@ ifeq ($(findstring -bmi2, $(ARCH)), -bmi2)
 	sse3 = yes
 	sse41 = yes
 	sse42 = yes
-	avx = yes
 	avx2 = yes
 	pext = yes
 endif
@@ -129,7 +126,6 @@ ifeq ($(findstring -avx, $(ARCH)), -avx)
 	sse3 = yes
 	sse41 = yes
 	sse42 = yes
-	avx = yes
 endif
 
 ifeq ($(findstring -avx2, $(ARCH)), -avx2)
@@ -139,7 +135,6 @@ ifeq ($(findstring -avx2, $(ARCH)), -avx2)
 	sse3 = yes
 	sse41 = yes
 	sse42 = yes
-	avx = yes
 	avx2 = yes
 endif
 
@@ -150,7 +145,6 @@ ifeq ($(findstring -avx512, $(ARCH)), -avx512)
 	sse3 = yes
 	sse41 = yes
 	sse42 = yes
-	avx = yes
 	avx2 = yes
 	pext = yes
 	avx512 = yes
@@ -184,10 +178,6 @@ endif
 
 ifeq ($(avx2), yes)
 	CXXFLAGS += -mavx2 -mbmi
-endif
-
-ifeq ($(avx), yes)
-	CXXFLAGS += -mavx -mbmi
 endif
 
 ifeq ($(popcnt), yes)
@@ -267,7 +257,6 @@ help:
 	@echo "native                       > This is used by default and selects the best architecture for your processor"
 	@echo "x86-64-avx512                > 64-bit with avx512 support"
 	@echo "x86-64-avx2                  > 64-bit with avx2 support"
-	@echo "x86-64-avx                   > 64-bit with avx support"
 	@echo "x86-64-bmi2                  > 64-bit with bmi2 support"
 	@echo "x86-64-sse42-popcnt          > 64-bit with sse4.2 and popcnt support"
 	@echo "x86-64-sse41-popcnt          > 64-bit with sse4.1 and popcnt support"
