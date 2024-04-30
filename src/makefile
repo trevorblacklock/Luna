@@ -1,324 +1,315 @@
-_THIS := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-_ROOT := $(_THIS)/..
-_SRC := $(_ROOT)/src
-_BIN := $(_ROOT)/bin
-_MAKE := $(MAKE) --no-print-directory -C $(_THIS)
+print-%  : ; @echo $* = $($*)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1. General
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Compiler and sources
-CXX = g++
-_LIBS_WL := -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -fno-aggressive-loop-optimizations $(CFLAGS)
-_LIBS := -pthread
-_CXXSRCS := $(_SRC)/*.cpp $(_SRC)/nn/*.cpp
-_CSRCS := $(_SRC)/syzygy/tbprobe.cpp
-_SRCS := $(_CSRS) $(_CXXSRCS)
-
-# Engine name and version
-NAME = Luna
-MINOR = 1
-MAJOR = 2
-MAKROS = -DMINOR_VERSION=$(MINOR) -DMAJOR_VERSION=$(MAJOR)
-
-EVALFILE = $(_ROOT)/networks/luna.net
-
-# Compilation flags
-MARCH_FLAG = -march=native
-PGO_PRE_FLAGS = -fprofile-generate -lgcov
-PGO_POST_FLAGS = -fprofile-use -fno-peel-loops -fno-tracer
-
-# COMPILATION OPTIONS #
-
-# Options
-NAMING ?= 1
-VALGRIND ?= 1
-STATIC ?= 0
-NATIVE ?= 0
-DETECT ?= 1
-PGO ?= 0
-DEBUG ?= 0
-LTO ?= 0
-PEXT ?= 0
-# Vector instructions
-AVX512 ?= 0
-AVX2 ?= $(AVX512)
-AVX ?= $(AVX2)
-POPCNT ?= $(AVX)
-SSE42 ?= $(POPCNT)
-SSE41 ?= $(SSE42)
-SSE3 ?= $(SSE41)
-SSE2 ?= $(SSE3)
-SSE ?= $(SSE2)
-
-# HOST DETECTION #
-ifeq ($(OS),Windows_NT)
-	_LIBS += $(_LIBS_WL)
-else
+# Find the OS
 UNAME := $(shell uname -s)
-ifeq ($(UNAME),Linux)
-	_LIBS += $(_LIBS_WL)
+ifeq ($(UNAME), Linux)
+	OS := $(shell uname -o)
+endif
+
+ifeq ($(OS), Windows_NT)
+	windows = yes
+endif
+
+# File name
+NAME = luna
+MAJOR = 2
+MINOR = 1
+
+# Source code directory
+ROOT := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+SRCS := $(ROOT)/*.cpp $(ROOT)/nn/*.cpp
+OBJS := $(notdir $(SRCS:.cpp=.o))
+
+# Default network name
+EVALFILE := $(ROOT)/../networks/luna-00000000.nn
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. Configuration
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# option                | flag        	| description
+#==============================================================================
+#												|
+# debug = yes/no				| -DNDEBUG 			| enable/disable debugging mode
+# optimize = yes/no			| -0fast				| enable compiler optimizations
+# popcnt = yes/no				| -DUSE_POPCNT	| use popcnt asm-instruction
+# pext = yes/no					| -DUSE_PEXT		| use pext asm-instruction
+# sse = yes/no					|	-msse					| use Intel Streaming SIMD extensions
+# sse2 = yes/no					|	-msse2				| use Intel Streaming SIMD extensions 2
+# sse3 = yes/no					| -msse3				| use Intel Streaming SIMD extensions 3
+# sse41 = yes/no				| -msse4.1			| use Intel Streaming SIMD extensions 4.1
+# sse42 = yes/no				| -msse4.2			| use Intel Streaming SIMD extensions 4.2
+# avx = yes/no					|	-mavx					| use Intel Advanced Vector Instructions
+# avx2 = yes/no					| -mavx2				| use Intel Advanced Vector Instructions 2
+# avx512 = yes/no				| -mavx512bw		| use Intel Advanced Vector Instructions 512
+#==============================================================================
+
+# 2.1 options
+ifeq ($(ARCH), )
+	ARCH = native
+	CXXFLAGS += -march=native
+endif
+
+debug = no
+optimize = yes
+popcnt = no
+pext = no
+sse = no
+sse2 = no
+sse3 = no
+sse41 = no
+sse42 = no
+avx = no
+avx2 = no
+avx512 = no
+
+CXX = g++
+CXXFLAGS = -Wall -Wextra -Wshadow -Wmissing-declarations -std=c++17 \
+						-DMINOR_VERSION=$(MINOR) -DMAJOR_VERSION=$(MAJOR) \
+						-DEVALFILE=\"$(EVALFILE)\"
+PREPGOFLAGS = -fprofile-generate -lgcov
+POSTPGOFLAGS = -fprofile-use -fno-peel-loops -fno-tracer -lgcov
+
+# 2.2 OS specific flags use pthread on windows and lpthread on linux
+ifeq ($(OS), Windows_NT)
+	CXXFLAGS += -static -pthread
 else
-ifeq ($(UNAME),Darwin)
-	MARCH_FLAG := -mcpu=apple-a14
+ifeq ($(OS), LINUX)
+	CXXFLAGS += -lpthread
+endif
+endif
+
+# 2.3 Arch specific flags
+ifeq ($(findstring x86-64, $(ARCH)), x86-64)
+	sse2 = yes
+endif
+
+ifeq ($(findstring -sse3, $(ARCH)), -sse3)
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+endif
+
+ifeq ($(findstring -popcnt, $(ARCH)), -popcnt)
+	popcnt = yes
+endif
+
+ifeq ($(findstring -sse41, $(ARCH)), -sse3)
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+endif
+
+ifeq ($(findstring -sse42, $(ARCH)), -sse3)
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+	sse42 = yes
+endif
+
+ifeq ($(findstring -bmi2, $(ARCH)), -bmi2)
+	popcnt = yes
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+	sse42 = yes
+	avx = yes
+	avx2 = yes
+	pext = yes
+endif
+
+ifeq ($(findstring -avx, $(ARCH)), -avx)
+	popcnt = yes
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+	sse42 = yes
+	avx = yes
+endif
+
+ifeq ($(findstring -avx2, $(ARCH)), -avx2)
+	popcnt = yes
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+	sse42 = yes
+	avx = yes
+	avx2 = yes
+endif
+
+ifeq ($(findstring -avx512, $(ARCH)), -avx512)
+	popcnt = yes
+	sse = yes
+	sse2 = yes
+	sse3 = yes
+	sse41 = yes
+	sse42 = yes
+	avx = yes
+	avx2 = yes
+	pext = yes
+	avx512 = yes
+endif
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 3. Low-Level Configuration
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 3.1 debugging information
+ifeq ($(debug), yes)
+	CXXFLAGS += -g
 else
-$(warning incompatible host, this might fail)
-endif
-endif
+	CXXFLAGS += -DNDEBUG
 endif
 
-# Disable all avx flags if native is set
-ifeq ($(NATIVE),1)
-	override AVX512 := *
-	override AVX2   := *
-	override AVX    := *
-	override POPCNT := *
-	override SSE42  := *
-	override SSE41  := *
-	override SSE3   := *
-	override SSE2   := *
-	override SSE    := *
+# 3.2 optimization settings
+ifeq ($(optimize), yes)
+	CXXFLAGS += -Ofast -funroll-loops
 endif
 
-PROPS = $(shell echo | $(CC) $(MARCH_FLAG) -E -dM -)
-
-# If DETECT is on, detect and enable flags
-ifeq ($(DETECT),1)
-	ifneq ($(findstring __BMI2__, $(PROPS)),)
-		ifeq ($(findstring __znver1, $(PROPS)),)
-			ifeq ($(findstring __znver2, $(PROPS)),)
-				PEXT := 1
-			endif
-		endif
-	endif
+# 3.3 SIMD and vector instructions
+ifeq ($(pext), yes)
+	CXXFLAGS += -DUSE_PEXT -mbmi2
 endif
 
-# Disable PGO on mac systems and use NATIVE
-ifeq ($(UNAME),Darwin)
-	override PGO    := 0
-	override STATIC := 0
-	override NATIVE := 1
+
+ifeq ($(avx512), yes)
+	CXXFLAGS += -mavx512f -mavx512bw
 endif
 
-# OUTPUT SPECIFICATION #
-
-# Default EXE name and EXE directory
-override DEFAULT_EXE_NAME := $(NAME)_$(MAJOR).$(MINOR)
-
-# Specify EXE name and EXE dir
-EXE_NAME := $(DEFAULT_EXE_NAME)
-EXE_DIR  := $(_ROOT)/bin
-
-# Build EXE name based on EXE dir and EXE name
-EXE			:= $(EXE_DIR)/$(EXE_NAME)
-EXE_DIR := $(dir $(abspath $(EXE)))
-
-# BUILD FLAGS #
-
-override FLAGS := -std=c++17 -Wall -Wextra -Wshadow -DEVALFILE=\"$(EVALFILE)\"
-LDFLAGS += " -lgcov --coverage"
-
-ifeq ($(VALGRIND),1)
-	PEXT := 0
+ifeq ($(avx2), yes)
+	CXXFLAGS += -mavx2 -mbmi
 endif
 
-ifeq ($(DEBUG),0)
-	override FLAGS += -DNDEBUG -O3 -ffloat-store -g
+ifeq ($(avx), yes)
+	CXXFLAGS += -mavx -mbmi
 endif
 
-ifeq ($(PEXT),1)
-	override FLAGS += -DUSE_PEXT -mbmi2
+ifeq ($(popcnt), yes)
+	CXXFLAGS += -DUSE_POPCNT -mpopcnt
 endif
 
-ifeq ($(LTO),1)
-	override FLAGS += -flto
+ifeq ($(sse42), yes)
+	CXXFLAGS += -msse4.2
 endif
 
-ifeq ($(VALGRIND),1)
-	override FLAGS += -lstdc++
+ifeq ($(sse41), yes)
+	CXXFLAGS += -msse4.1
 endif
 
-ifeq ($(STATIC),1)
-	override FLAGS += -static -static-libgcc -static-libstdc++
+ifeq ($(sse3), yes)
+	CXXFLAGS += -msse3
 endif
 
-ifeq ($(NATIVE),1)
-	override FLAGS += $(MARCH_FLAG)
+ifeq ($(sse2), yes)
+	CXXFLAGS += -msse2
 endif
 
-ifeq ($(AVX512),1)
-	override FLAGS += -mavx512f -mavx512bw -mavx512dq
+ifeq ($(sse), yes)
+	CXXFLAGS += -msse
 endif
 
-ifeq ($(AVX2),1)
-	override FLAGS += -mavx2
+# 3.4.1 Include git sha for version
+GIT_SHA := $(shell git rev-parse HEAD 2>/dev/null | cut -c 1-8)
+ifneq ($(GIT_SHA), )
+	CXXFLAGS += -DGIT_SHA=$(GIT_SHA)
 endif
 
-ifeq ($(AVX),1)
-	override FLAGS += -mavx
+# 3.4.2 Include the git commit date for version
+GIT_DATE := $(shell git show -s --date=format:'%Y%m%d' --format=%cd HEAD 2>/dev/null)
+ifneq ($(GIT_DATE), )
+	CXXFLAGS += -DGIT_DATE=$(GIT_DATE)
 endif
 
-ifeq ($(POPCNT),1)
-	override FLAGS += -mpopcnt
-endif
-
-ifeq ($(SSE42),1)
-	override FLAGS += -msse4.2
-endif
-
-ifeq ($(SSE41),1)
-	override FLAGS += -msse4.1
-endif
-
-ifeq ($(SSE3),1)
-	override FLAGS += -msse3
-endif
-
-ifeq ($(SSE2),1)
-	override FLAGS += -msse2
-endif
-
-ifeq ($(SSE),1)
-	override FLAGS += -msse
-endif
-
-# NAMING BASED ON FEATURES #
-override EXE_INFO :=
-
-# set name based on highest vector extension
-ifeq ($(AVX512),1)
-	override EXE_INFO := $(EXE_INFO)-avx512
-else ifeq ($(AVX2),1)
-	override EXE_INFO := $(EXE_INFO)-avx2
-else ifeq ($(AVX),1)
-	override EXE_INFO := $(EXE_INFO)-avx
-else ifeq ($(POPCNT),1)
-	override EXE_INFO := $(EXE_INFO)-popcnt
-else ifeq ($(SSE42),1)
-	override EXE_INFO := $(EXE_INFO)-sse42
-else ifeq ($(SSE41),1)
-	override EXE_INFO := $(EXE_INFO)-sse41
-else ifeq ($(SSE3),1)
-	override EXE_INFO := $(EXE_INFO)-msse3
-else ifeq ($(SSE2),1)
-	override EXE_INFO := $(EXE_INFO)-sse2
-else ifeq ($(SSE),1)
-	override EXE_INFO := $(EXE_INFO)-sse
-endif
-
-# pgo naming
-ifeq ($(PGO),1)
-	override EXE_INFO := $(EXE_INFO)-pgo
-endif
-
-# debug naming
-ifeq ($(DEBUG),1)
-	override EXE_INFO := $(EXE_INFO)-debug
-endif
-
-# pext naming
-ifeq ($(PEXT),1)
-	override EXE_INFO := $(EXE_INFO)-pext
-endif
-
-# OS naming
-ifeq ($(OS),Windows_NT)
-	override PREFIX := windows
-	override SUFFIX := .exe
-else
-ifeq ($(UNAME),Linux)
-	override PREFIX := linux
-	override SUFFIX :=
-else
-ifeq ($(UNAME), Darwin)
-	override PREFIX := darwin
-	override SUFFIX :=
-else
-	override PREFIX :=
-	override SUFFIX :=
-endif
+# 3.5 Link optimization for lto
+ifeq ($(optimize), yes)
+ifeq ($(debug), no)
+	CXXFLAGS += -flto
 endif
 endif
 
-# Adjust the EXE path
-ifeq ($(NAMING),1)
-	EXE := $(EXE_DIR)/$(EXE_NAME)-$(PREFIX)$(EXE_INFO)$(SUFFIX)
+# 3.6 EXE name
+PREFIX = linux
+SUFFIX =
+
+ifeq ($(OS), Windows_NT)
+	override PREFIX = windows
+	override SUFFIX = .exe
 endif
 
-# Generate the EXE name which will be used for pgo
+EXE_DIR := $(ROOT)/../bin
+EXE := $(EXE_DIR)/$(NAME)-$(MAJOR).$(MINOR)-$(PREFIX)-$(ARCH)$(SUFFIX)
 EXE_PGO := $(abspath $(EXE))
 
-# RULES #
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 4. Compilation Targets
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-openbench:
-	$(_MAKE) build DEBUG=0 NATIVE=1 PGO=1 LTO=1 DETECT=1 EVALFILE=$(EVALFILE) NAMING=0 EXE=$(EXE)
+help:
+	@echo ""
+	@echo "To compile luna, type: "
+	@echo ""
+	@echo "make target [ARCH=arch]"
+	@echo ""
+	@echo "Targets: "
+	@echo "help                         > Displays information on targets"
+	@echo "pgo                          > Creates a build with profile guided optimization"
+	@echo "build                        > Standard build without profile guided optimization"
+	@echo "net                          > Requires you to be connected to the internet; downloads the neural net"
+	@echo "clean                        > Clean up the directory"
+	@echo ""
+	@echo "Supported arch: "
+	@echo "native                       > This is used by default and selects the best architecture for your processor"
+	@echo "x86-64-avx512                > 64-bit with avx512 support"
+	@echo "x86-64-avx2                  > 64-bit with avx2 support"
+	@echo "x86-64-avx                   > 64-bit with avx support"
+	@echo "x86-64-bmi2                  > 64-bit with bmi2 support"
+	@echo "x86-64-sse42-popcnt          > 64-bit with sse4.2 and popcnt support"
+	@echo "x86-64-sse41-popcnt          > 64-bit with sse4.1 and popcnt support"
+	@echo "x86-64-sse3-popcnt           > 64-bit with sse3 and popcnt support"
+	@echo "x86-64-sse3                  > 64-bit with sse3 support"
+	@echo "x86-64                       > 64-bit generic build with sse2 support"
+	@echo ""
+	@echo "Examples: "
+	@echo "make pgo ARCH=x86-64-avx2    > Creates a fast and modern build with profile guided optimization"
+	@echo "make build ARCH=x86-64       > Creates a highly compatible build skipping profile guided optimization"
+	@echo ""
 
-native:
-	$(_MAKE) build DEBUG=0 NATIVE=1 PGO=0 LTO=1 DETECT=1 NAMING=$(NAMING) STATIC=1 EXE_NAME=$(EXE_NAME)
+build: net
+	@mkdir -p $(EXE_DIR)
+	$(CXX) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
 
-pgo:
-	$(_MAKE) build DEBUG=0 NATIVE=1 PGO=1 LTO=1 DETECT=1 NAMING=$(NAMING) STATIC=1 EXE_NAME=$(EXE_NAME)
+pgo: net obj-clean pgo-clean
+	@echo ""
+	@echo "Step 1/4. Building initial executable ..."
+	@mkdir -p $(EXE_DIR)
+	$(CXX) $(PREPGOFLAGS) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
+	@echo ""
+	@echo "Step 2/4. Running benchmark ..."
+	$(EXE_PGO) bench > PGOBENCH.out 2>&1
+	tail -n 1 PGOBENCH.out
+	@echo ""
+	@echo "Step 3/4. Building optimized executable ..."
+	$(MAKE) ARCH=$(ARCH) obj-clean
+	$(CXX) $(POSTPGOFLAGS) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
+	@echo ""
+	@echo "Step 4/4. Cleaning up ..."
+	$(MAKE) ARCH=$(ARCH) pgo-clean
 
-valgrind:
-	$(_MAKE) build DEBUG=0 NATIVE=0 PGO=0 LTO=1 DETECT=1 NAMING=$(NAMING) STATIC=0 VALGRIND=1 EXE_NAME=$(EXE_NAME)
+obj-clean:
+	@rm -f *.o /nn/*.o
 
-debug:
-	$(_MAKE) build DEBUG=1 NATIVE=1 PGO=0 LTO=1 DETECT=1 NAMING=$(NAMING) STATIC=1 EXE_NAME=$(EXE_NAME)
+pgo-clean:
+	@rm -rf pgodir
+	@rm -f bench.txt ../bin/*.gcda ../bin/*.gcno PGOBENCH.out
 
-prebuild:
-	$(_MAKE) prebuild DEBUG=0 NATIVE=1 PGO=0 LTO=1 DETECT=1 STATIC=1
+default:
+	help
 
-overview:
-	$(info NAME      : $(NAME))
-	$(info EXE       : $(EXE))
-	$(info EXE_NAME  : $(EXE_NAME))
-	$(info EXE_DIR   : $(EXE_DIR))
-	$(info NAMING    : $(NAMING))
-	$(info NATIVE    : $(NATIVE))
-	$(info LTO       : $(LTO))
-	$(info STATIC    : $(STATIC))
-	$(info PEXT      : $(PEXT))
-	$(info PGO       : $(PGO))
-	$(info DEBUG     : $(DEBUG))
-	$(info AVX512    : $(AVX512))
-	$(info AVX2      : $(AVX2))
-	$(info AVX       : $(AVX))
-	$(info POPCNT    : $(POPCNT))
-	$(info SSE42     : $(SSE42))
-	$(info SSE41     : $(SSE41))
-	$(info SSE3      : $(SSE3))
-	$(info SSE2      : $(SSE2))
-	$(info SSE       : $(SSE))
-
-build: updateNetwork overview
-	mkdir -p $(EXE_DIR)
-    ifeq ($(PGO),1)
-		$(CXX) $(PGO_PRE_FLAGS) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
-		$(EXE_PGO) bench
-		$(CXX) $(PGO_POST_FLAGS) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
-		@rm -f $(EXE_DIR)*.gcda
-    else
-		$(CXX) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -o $(EXE)
-    endif
-
-prebuild: updateNetwork overview
-	$(CXX) $(FLAGS) $(_SRCS) $(MAKROS) $(_LIBS) -c
-
-release:
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 AVX512=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 AVX2=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 POPCNT=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE42=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE41=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE3=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE2=1
-	$(_MAKE) build DEBUG=0 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE=1
-
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 AVX512=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 AVX2=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 POPCNT=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE42=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE41=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE3=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE2=1
-	$(_MAKE) build DEBUG=0 PEXT=1 PGO=1 LTO=1 DETECT=0 NAMING=1 STATIC=1 SSE=1
-
-# Update the network
-updateNetwork:
+net:
