@@ -32,9 +32,9 @@ using vec_reg_32 = __m512i;
 #define vec_add_32(a,b)  _mm512_add_epi32(a,b)
 #define vec_sub_32(a,b)  _mm512_sub_epi32(a,b)
 #define vec_max_16(a,b)  _mm512_max_epi16(a,b)
-#define BIT_ALIGNMENT 256
-#define NB_REGISTER 8
-#elif defined(__AVX2__) || defined(__AVX__)
+#define BIT_ALIGNMENT 512
+#define NB_REGISTER 16
+#elif defined(__AVX2__)
 using vec_reg_16 = __m256i;
 using vec_reg_32 = __m256i;
 #define vec_load(a)      _mm256_load_si256(a)
