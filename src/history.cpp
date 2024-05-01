@@ -133,6 +133,8 @@ int History::get_max_improvement(Square from, Square to) const {
 }
 
 bool History::is_improving(Color side, int eval, int ply) const {
+  if (ply >= 4) return eval > get_eval_hist(side, ply - 2)
+                    && eval > get_eval_hist(side, ply - 4);
   if (ply >= 2) return eval > get_eval_hist(side, ply - 2);
   return true;
 }

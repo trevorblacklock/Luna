@@ -829,8 +829,28 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     improving = false;
     goto moves_loop;
   }
+  else if (found) {
+    standpat = eval = tten->eval();
+    if (eval == VALUE_NONE)
+      eval = standpat = pos->evaluate();
+    if (ttScore != VALUE_NONE && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER)))
+      eval = ttScore;
+  }
+  else
+    standpat = eval = pos->evaluate();
 
-  standpat = eval = pos->evaluate();
+  // setup improvement across plies
+  if (ply && pos->get_previous_move() != MOVE_NONE) {
+    if (hd->get_eval_hist(!us, ply - 1) > VALUE_TB_LOSS) {
+      int improvement = -standpat - hd->get_eval_hist(!us, ply - 1);
+      hd->set_max_improvement(from_sq(pos->get_previous_move()),
+                              to_sq(pos->get_previous_move()), improvement);
+    }
+  }
+
+  // set the historic eval before we adjust it using the TT
+  hd->set_eval_hist(us, standpat, ply);
+  improving = hd->is_improving(us, standpat, ply);
 
   // razoring, if the eval is low we can check if it exceeds alpha
   if (depth <= 3
