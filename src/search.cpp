@@ -1112,6 +1112,16 @@ moves_loop:
     // keep track of the amount of nodes
     U64 nodeCount = sd->searchInfo.nodes;
 
+    // adjust the reductions based on multiple heuristics
+    // first calculate the history and adjust the reduction
+    int history = hd->get_history(pos, m);
+    r -= history / (10000 + 4000 * (depth > 5 && depth < 23));
+
+    // setup a new depth to search with using the reductions and extensions
+    // never want reductions to extend search further than 1 and
+    // must clamp the value to avoid any sort of problems
+    int d = std::clamp(newDepth - r, 1, newDepth + 1);
+
     // search the position with Late Move Reductions
     // the conditions to enter LMR are that we must be past a starting depth
     // we must have already searched a single move in the position
@@ -1122,7 +1132,17 @@ moves_loop:
       && (!sd->ttPv[ply] || !isCapture || (cutNode && sd->moveGen[ply - 1].leaf_size() > 1))) {
 
       // do the search with reductions applied
-      score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, true);
+      score = -alphabeta(pos, sd, -alpha - 1, -alpha, d, true);
+
+      // perform a re-search if the last search failed high and had reduced depth
+      if (score > alpha && d < newDepth) {
+
+        score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
+
+        // calculate a bonus to update continuation histories
+        int bonus = score <= alpha ? stat_bonus(newDepth)
+                  : score >= beta ? stat_bonus(newDepth) : 0;
+      }
     }
 
     // when the conditions for LMR are not met enter a full depth search
