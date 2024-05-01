@@ -824,6 +824,23 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     if (pos->fifty() < 90) return ttScore;
   }
 
+  if (inCheck) {
+    standpat = eval = -VALUE_MATE + ply;
+    improving = false;
+    goto moves_loop;
+  }
+
+  standpat = eval = pos->evaluate();
+
+  // razoring, if the eval is low we can check if it exceeds alpha
+  if (depth <= 3
+    && eval + RAZOR_MARGIN * depth < beta
+    && !sd->extMove
+    && !pvNode) {
+    score = qsearch(pos, sd, alpha, beta, pvNode);
+    if (score < beta) return score;
+  }
+
 moves_loop:
 
   // setup movegen
