@@ -1117,6 +1117,18 @@ moves_loop:
     int history = hd->get_history(pos, m);
     r -= history / (10000 + 4000 * (depth > 5 && depth < 23));
 
+    // reduce reduction at pvnode
+    r -= pvNode;
+
+    // increase reduction at cut nodes
+    r += 2 * cutNode;
+
+    // increase reduction if position not improving
+    r += !improving;
+
+    // decrease lmr if move is a killer
+    r -= hd->is_killer(us, m, ply);
+
     // setup a new depth to search with using the reductions and extensions
     // never want reductions to extend search further than 1 and
     // must clamp the value to avoid any sort of problems
