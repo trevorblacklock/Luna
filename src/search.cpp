@@ -918,6 +918,12 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     }
   }
 
+  // internal iterative reductions
+  // if no tt move then reduce depth
+  if (depth >= 4 && !ttMove) {
+    depth--;
+  }
+
 moves_loop:
 
   // setup movegen
@@ -984,13 +990,6 @@ moves_loop:
             + moveDepth * FUTILITY_MARGIN + 100
             + hd->get_eval_hist(us, ply) < alpha)
           continue;
-
-        // calculate the history
-        int history = hd->get_history(pos, m);
-
-        // prune moves at low depth which have historically been bad
-        // if (!inCheck && history < std::min(700 - 500 * depth * (depth + improving), 0))
-        //   continue;
 
       }
 
