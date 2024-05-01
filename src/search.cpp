@@ -959,6 +959,48 @@ moves_loop:
     // increment the move counter
     moveCnt++;
 
+    int delta = beta - alpha;
+    int r = reductions(depth, legalMoves, delta, sd->rootDelta);
+
+    if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
+      // find a crude depth estimation
+      int moveDepth = std::max(1, 1 + depth - r);
+
+      if (quiet) {
+        // increment the number of quiets searched
+        quiets++;
+
+        // if we have searched enough quiet moves skip this move
+        if (mg->can_skip()) continue;
+
+        // if the number of quiets searched passes a threshold
+        // set a flag to not search any more quiet moves
+        if (depth <= 7 && quiets >= lmp[improving][depth]) mg->skip_quiets();
+
+        // prune quiet moves that are unlikely to improve alpha
+        if (!inCheck
+          && moveDepth <= 7
+          && hd->get_max_improvement(from, to)
+            + moveDepth * FUTILITY_MARGIN + 100
+            + hd->get_eval_hist(us, ply) < alpha)
+          continue;
+
+        // calculate the history
+        int history = hd->get_history(pos, m);
+
+        // prune moves at low depth which have historically been bad
+        // if (!inCheck && history < std::min(700 - 500 * depth * (depth + improving), 0))
+        //   continue;
+
+      }
+
+      if (moveDepth <= 5 + quiet * 3
+        && piece_type(pc) < piece_type(pos->pc_sq(to))
+        && (isCapture ? mg->get_see() : pos->see_eval(m))
+        <= (quiet ? -40 * moveDepth : -100 * moveDepth))
+        continue;
+    }
+
     // singular move extensions
     // make sure cannot extend too far
     if (ply < sd->rootDepth * 2) {
@@ -1083,6 +1125,8 @@ moves_loop:
 
       // check for a beta-cutoff
       if (score >= beta) {
+        // if not at the root node update the ttpv
+        if (ply) sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
         // if there is no extension move save the score to the TT
         if (!sd->extMove && !sd->searchInfo.timeout) {
           // give the entry a lower bound since we failed low
@@ -1107,6 +1151,9 @@ moves_loop:
   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
+
+  if (bestScore <= alpha && ply)
+    sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
 
   // write the bestscore to the TT when there is no extension move
   if (!sd->extMove && !sd->searchInfo.timeout) {
