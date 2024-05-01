@@ -60,7 +60,7 @@ avx512 = no
 CXX = g++
 CXXFLAGS = -Wall -Wextra -Wshadow -Wmissing-declarations -std=c++17 \
 						-DMINOR_VERSION=$(MINOR) -DMAJOR_VERSION=$(MAJOR) \
-						-DEVALFILE=\"$(EVALFILE)\"
+						-DEVALFILE=\"$(EVALFILE)\" -fno-aggressive-loop-optimizations
 PREPGOFLAGS = -fprofile-generate -lgcov
 POSTPGOFLAGS = -fprofile-use -fno-peel-loops -fno-tracer -lgcov
 
