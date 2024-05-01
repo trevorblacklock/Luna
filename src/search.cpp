@@ -841,6 +841,14 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     if (score < beta) return score;
   }
 
+  // futility pruning
+  if (   !sd->ttPv[ply]
+      && depth < 9
+      && !sd->extMove
+      && eval - (depth - improving) * FUTILITY_MARGIN >= beta
+      && eval < VALUE_TB_WIN)
+    return eval;
+
 moves_loop:
 
   // setup movegen
