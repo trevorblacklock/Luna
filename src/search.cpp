@@ -849,6 +849,44 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
       && eval < VALUE_TB_WIN)
     return eval;
 
+  // null move pruning search
+  if (   !pvNode
+      && eval < VALUE_KNOWN_WIN
+      && !sd->extMove
+      && pos->get_current_move() != MOVE_NONE
+      && eval >= beta - 15 * depth - (improving * 200)
+      && pos->non_pawn_mat(us)
+      && (ply >= sd->nmpMinPly || us != sd->nmpSide)) {
+
+    // setup depth adjustments
+    int nmpReduction = depth / 4 + 3;
+    if (eval - beta < 300) nmpReduction = (eval - beta) / FUTILITY_MARGIN;
+
+    int nullDepth = depth - nmpReduction - 3;
+
+    pos->do_null_move();
+    int v = -alphabeta(pos, sd, -beta, 1 - beta, nullDepth, !cutNode);
+    pos->undo_null_move();
+
+    // check for beta cutoff
+    if (v >= beta && v < VALUE_TB_WIN) {
+      // prune at low depths
+      if (sd->nmpMinPly || depth < 14) return v;
+
+      assert(!sd->nmpMinPly); // cannot verify recursively
+
+      // adjust nmp ply and side before re-search
+      sd->nmpMinPly = ply + 3 * (depth - nmpReduction) / 4;
+      sd->nmpSide = us;
+
+      // do a re-search
+      int re = alphabeta(pos, sd, beta - 1, beta, nullDepth, false);
+      // re-adjust nmp ply
+      sd->nmpMinPly = 0;
+      if (re >= beta) return v;
+    }
+  }
+
 moves_loop:
 
   // setup movegen
