@@ -803,6 +803,27 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     sd->rootDelta = beta - alpha;
   }
 
+  // probe the transposition table for any exisiting entries
+  // so we don't have to re-search the same position
+  TTentry* tten = TT.get(key, found);
+  int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
+  ttMove = found ? tten->move() : MOVE_NONE;
+
+  // update if move has been on the pv only if there is no extension move
+  if (!sd->extMove) sd->ttPv[ply] = pvNode || (found && tten->is_pv());
+
+  // use the score at the given entry
+  // only check for a cutoff if the node is not pv
+  if ( found
+    && !pvNode && !sd->extMove
+    && tten->depth() > depth
+    && ttScore != VALUE_NONE
+    && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER))) {
+
+    // so long as 50 move rule is not close can return the score
+    if (pos->fifty() < 90) return ttScore;
+  }
+
 moves_loop:
 
   // setup movegen
@@ -908,6 +929,10 @@ moves_loop:
 
       // check for a beta-cutoff
       if (score >= beta) {
+        // if there is no extension move save the score to the TT
+        if (!sd->extMove) {
+          TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
+        }
         // return the bestscore
         return bestScore;
       }
@@ -924,6 +949,12 @@ moves_loop:
   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
+
+  // write the bestscore to the TT when there is no extension move
+  if (!sd->extMove) {
+    TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), bestMove,
+            bestMove && pvNode ? BOUND_EXACT : BOUND_UPPER, sd->ttPv[ply]);
+  }
 
   // return the best score
   return bestScore;
