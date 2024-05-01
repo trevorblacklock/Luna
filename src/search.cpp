@@ -823,6 +823,13 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     && ttScore != VALUE_NONE
     && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER))) {
 
+    // if the tt move is quiet can update the move histories
+    if (ttMove) {
+      if (ttScore >= beta && !pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
+        update_quiet_stats(hd, pos, ttMove, stat_bonus(depth));
+      else if (!pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
+        update_continuation_histories(hd, pos, pos->pc_sq(ttMove), to_sq(ttMove), -stat_bonus(depth));
+    }
     // so long as 50 move rule is not close can return the score
     if (pos->fifty() < 90) return ttScore;
   }
@@ -839,8 +846,9 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     if (ttScore != VALUE_NONE && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER)))
       eval = ttScore;
   }
-  else
+  else {
     standpat = eval = pos->evaluate();
+  }
 
   // setup improvement across plies
   if (ply && pos->get_previous_move() != MOVE_NONE) {
@@ -1076,9 +1084,13 @@ moves_loop:
       // check for a beta-cutoff
       if (score >= beta) {
         // if there is no extension move save the score to the TT
-        if (!sd->extMove) {
+        if (!sd->extMove && !sd->searchInfo.timeout) {
+          // give the entry a lower bound since we failed low
           TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
         }
+        // update the move histories
+        update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
+
         // return the bestscore
         return bestScore;
       }
@@ -1097,7 +1109,7 @@ moves_loop:
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
 
   // write the bestscore to the TT when there is no extension move
-  if (!sd->extMove) {
+  if (!sd->extMove && !sd->searchInfo.timeout) {
     TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), bestMove,
             bestMove && pvNode ? BOUND_EXACT : BOUND_UPPER, sd->ttPv[ply]);
   }
