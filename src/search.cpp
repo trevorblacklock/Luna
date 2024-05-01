@@ -803,6 +803,9 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     sd->rootDelta = beta - alpha;
   }
 
+  // set double extensions for singular move extensions
+  if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1];
+
   // probe the transposition table for any exisiting entries
   // so we don't have to re-search the same position
   TTentry* tten = TT.get(key, found);
@@ -947,6 +950,66 @@ moves_loop:
 
     // increment the move counter
     moveCnt++;
+
+    // singular move extensions
+    // make sure cannot extend too far
+    if (ply < sd->rootDepth * 2) {
+      if ( ply
+        && m == ttMove
+        && !sd->extMove
+        && depth >= 4 + 2 * (pvNode && tten->is_pv())
+        && abs(ttScore) < VALUE_TB_WIN
+        && (tten->bound() & BOUND_LOWER)
+        && tten->depth() >= depth - 3) {
+
+        // init values of singular beta and singular depth
+        int sBeta = ttScore - (50 + 50 * (sd->ttPv[ply] && !pvNode)) * depth / 50;
+        int sDepth = (depth - 1) / 2;
+
+        // set the extension move as to not prune or enter another extension loop with it
+        sd->extMove = m;
+        score = alphabeta(pos, sd, sBeta - 1, sBeta, sDepth, cutNode);
+        sd->extMove = MOVE_NONE;
+
+        if (score < sBeta) {
+          extension = 1;
+
+          if (!pvNode
+            && score < sBeta - 25
+            && sd->doubleExtensions[ply] < 12) {
+            extension = 2;
+            depth += depth < 10;
+          }
+        }
+
+        // if subtree still fails high with ttMove being excluded
+        // can safely return singular beta since ttMove already fails high
+        else if (sBeta >= beta)
+          return sBeta;
+
+        // negative extensions
+        else if (ttScore >= beta)
+          extension = -2 - !pvNode;
+
+        // if the ttMove fails low
+        else if (ttScore <= score)
+          extension = -1;
+
+        mg->init(pos, hd, ply, ttMove, PV_SEARCH);
+        m = mg->next();
+      }
+      // check extensions
+      else if (givesCheck && depth > 9)
+        extension = 1;
+
+      // quiet tt extensions
+      else if (pvNode && m == ttMove && hd->is_killer(us, m, ply)
+              && hd->get_continuation_hist(pc, to, ply) >= 4000)
+        extension = 1;
+    }
+
+    newDepth += extension;
+    if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1] + (extension == 2);
 
     // make the move
     pos->do_move(m, true);
