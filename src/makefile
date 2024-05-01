@@ -58,9 +58,9 @@ avx2 = no
 avx512 = no
 
 CXX = g++
-CXXFLAGS = -Wall -Wextra -Wshadow -Wmissing-declarations -std=c++17 \
-						-DMINOR_VERSION=$(MINOR) -DMAJOR_VERSION=$(MAJOR) \
-						-DEVALFILE=\"$(EVALFILE)\" -fno-aggressive-loop-optimizations
+CXXFLAGS = -std=c++17 -Wall -Wcast-qual -fno-exceptions -pedantic -Wextra -Wshadow \
+						-fno-aggressive-loop-optimizations -DMINOR_VERSION=$(MINOR) \
+						-DMAJOR_VERSION=$(MAJOR) -DEVALFILE=\"$(EVALFILE)\"
 PREPGOFLAGS = -fprofile-generate -lgcov
 POSTPGOFLAGS = -fprofile-use -fno-peel-loops -fno-tracer -lgcov
 
@@ -69,7 +69,7 @@ ifeq ($(OS), Windows_NT)
 	CXXFLAGS += -static -pthread
 else
 ifeq ($(UNAME), Linux)
-	CXXFLAGS += -lpthread
+	CXXFLAGS += -lpthread -static -static-libgcc -static-libstdc++
 endif
 endif
 
@@ -163,7 +163,7 @@ endif
 
 # 3.2 optimization settings
 ifeq ($(optimize), yes)
-	CXXFLAGS += -Ofast -funroll-loops
+	CXXFLAGS += -Ofast -ffloat-store
 endif
 
 # 3.3 SIMD and vector instructions
