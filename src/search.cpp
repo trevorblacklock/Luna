@@ -61,15 +61,16 @@ int LMR[MAX_INTERNAL_PLY][MAX_MOVES];
 void init_lmr() {
   for (int d = 0; d < MAX_INTERNAL_PLY; d++)
     for (int m = 0; m < MAX_MOVES; m++) {
-      if (d == 0 || m == 0)
+      if (d == 0 || m == 0) {
         LMR[d][m] = 0;
-      else
-        LMR[d][m] = 1.25 + log(d) * log(m) * 100 / 300;
+        continue;
+      }
+      LMR[d][m] = 1.25 + log(d) * log(m) * 100 / 300;
   }
 }
 
-int reductions(int depth, int legalMoves) {
-  return LMR[depth][legalMoves];
+int reductions(int depth, int legalMoves, int delta, int rootDelta) {
+  return (LMR[depth][legalMoves] + 1.5 - delta / rootDelta);
 }
 
 // setup threads given a number
@@ -189,10 +190,549 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   return MOVE_NONE;
 }
 
-int  lmp[2][8]        = {{0, 2, 3, 5, 8, 12, 17, 23}, {0, 3, 6, 9, 12, 18, 28, 40}};
+int  lmp[2][8] = {{0, 2, 3, 5, 8, 12, 17, 23}, {0, 3, 6, 9, 12, 18, 28, 40}};
+
+// int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int depth, bool cutNode) {
+//
+//   Color us = pos->get_side();
+//   bool pvNode = (beta - alpha) != 1;
+//   int ply = pos->get_ply();
+//
+//   // force a stop for node limit
+//   if (timeMan->node_limit.enabled && timeMan->node_limit.val <= sd->searchInfo.nodes) {
+//     timeMan->stop_search();
+//   }
+//
+//   assert(ply >= 0 && ply < MAX_SEARCH_PLY);
+//
+//   // update the seldepth
+//   if (ply > sd->searchInfo.seldepth)
+//     sd->searchInfo.seldepth = ply;
+//
+//   // reset the pv table length
+//   sd->pvTable(ply).length = 0;
+//
+//   // go into a q-search if depth reaches zero
+//   if (depth <= 0 || depth > MAX_PLY || ply > MAX_SEARCH_PLY)
+//     return qsearch(pos, sd, alpha, beta, pvNode);
+//
+//   // increment nodes
+//   sd->searchInfo.nodes++;
+//
+//   // check for a force stop
+//   if (timeMan->stop) {
+//     sd->searchInfo.timeout = true;
+//     return beta;
+//   }
+//
+//   // if time is out we fail high to stop the search and we only check every 1024 nodes
+//   if (sd->searchInfo.nodes % 1024 == 0 && sd->id == 0 && !timeMan->can_continue()) {
+//     sd->searchInfo.timeout = true;
+//     timeMan->stop_search();
+//     return beta;
+//   }
+//
+//   // get all the search info needed
+//   History*     hd         = &sd->historyData;
+//   U64          key        = pos->key();
+//   int          oalpha     = alpha;
+//   int          bestScore  = -VALUE_INFINITE;
+//   int          score      = -VALUE_INFINITE;
+//   Move         bestMove   = MOVE_NONE;
+//   Move         ttMove     = MOVE_NONE;
+//   int          standpat   = VALUE_NONE;
+//   int          eval       = VALUE_NONE;
+//   int          betaCut    = VALUE_NONE;
+//   bool         found      = false;
+//   bool         inCheck    = pos->checks();
+//   bool         improving  = false;
+//
+//   // check for a draw and do mate distance pruning
+//   if (ply) {
+//
+//     // draw randomization
+//     if (pos->is_draw() || ply >= MAX_PLY) {
+//       return (ply >= MAX_SEARCH_PLY && !inCheck) ? pos->evaluate() : 8 - (sd->searchInfo.nodes & 0xF);
+//     }
+//
+//     // mate distance pruning
+//     alpha = std::max(mated_in(ply), alpha);
+//     beta = std::min(mate_in(ply + 1), beta);
+//     if (alpha >= beta) return alpha;
+//   }
+//   else {
+//     sd->rootDelta = beta - alpha;
+//   }
+//
+//   // set double extensions for singular move extensions
+//   if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1];
+//
+//   // reset the past killer moves
+//   hd->reset_killers(us, ply);
+//
+//   // probe the transposition table for any exisiting entries
+//   // so we don't have to re-search the same position
+//   TTentry* tten = TT.get(key, found);
+//   int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
+//   ttMove = found ? tten->move() : MOVE_NONE;
+//
+//   if (!sd->extMove) sd->ttPv[ply] = pvNode || (found && tten->is_pv());
+//
+//   // use the score at the given entry
+//   // only check for a cutoff if the node is not pv
+//   if ( found
+//     && !pvNode && !sd->extMove
+//     && tten->depth() > depth
+//     && ttScore != VALUE_NONE
+//     && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER))) {
+//
+//     // if the tt move is quiet can update the move histories
+//     if (ttMove) {
+//       if (ttScore >= beta && !pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
+//         update_quiet_stats(hd, pos, ttMove, stat_bonus(depth));
+//       else if (!pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
+//         update_continuation_histories(hd, pos, pos->pc_sq(ttMove), to_sq(ttMove), -stat_bonus(depth));
+//     }
+//
+//     // so long as 50 move rule is not close can return the score
+//     if (pos->fifty() < 90) return ttScore;
+//   }
+//
+//   if (inCheck) {
+//     standpat = eval = -VALUE_MATE + ply;
+//     improving = false;
+//     goto moves_loop;
+//   }
+//   else if (found) {
+//     standpat = eval = tten->eval();
+//     if (eval == VALUE_NONE)
+//       eval = standpat = pos->evaluate();
+//     if (ttScore != VALUE_NONE && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER)))
+//       eval = ttScore;
+//   }
+//   else
+//     standpat = eval = pos->evaluate();
+//
+//   // setup improvement across plies
+//   if (ply && pos->get_previous_move() != MOVE_NONE) {
+//     if (hd->get_eval_hist(!us, ply - 1) > VALUE_TB_LOSS) {
+//       int improvement = -standpat - hd->get_eval_hist(!us, ply - 1);
+//       hd->set_max_improvement(from_sq(pos->get_previous_move()),
+//                               to_sq(pos->get_previous_move()), improvement);
+//     }
+//   }
+//
+//   // set the historic eval before we adjust it using the TT
+//   hd->set_eval_hist(us, standpat, ply);
+//   improving = hd->is_improving(us, standpat, ply);
+//
+//   // razoring, if the eval is low we can check if it exceeds alpha
+//   if (depth <= 3
+//     && eval + RAZOR_MARGIN * depth < beta
+//     && !sd->extMove
+//     && !pvNode) {
+//     score = qsearch(pos, sd, alpha, beta, pvNode);
+//     if (score < beta) return score;
+//   }
+//
+//   // futility pruning
+//   if (   !sd->ttPv[ply]
+//       && depth < 9
+//       && !sd->extMove
+//       && eval - (depth - improving) * FUTILITY_MARGIN >= beta
+//       && eval < VALUE_TB_WIN)
+//     return eval;
+//
+//   // null move pruning search
+//   if (   !pvNode
+//       && eval < VALUE_KNOWN_WIN
+//       && !sd->extMove
+//       && pos->get_current_move() != MOVE_NONE
+//       && eval >= beta - 15 * depth - (improving * 200)
+//       && pos->non_pawn_mat(us)
+//       && (ply >= sd->nmpMinPly || us != sd->nmpSide)) {
+//
+//     // setup depth adjustments
+//     int nmpReduction = depth / 4 + 3;
+//     if (eval - beta < 300) nmpReduction = (eval - beta) / FUTILITY_MARGIN;
+//
+//     int nullDepth = depth - nmpReduction - 3;
+//
+//     pos->do_null_move();
+//     int v = -alphabeta(pos, sd, -beta, 1 - beta, nullDepth, !cutNode);
+//     pos->undo_null_move();
+//
+//     // check for beta cutoff
+//     if (v >= beta && v < VALUE_TB_WIN) {
+//       // prune at low depths
+//       if (sd->nmpMinPly || depth < 14) return v;
+//
+//       assert(!sd->nmpMinPly); // cannot verify recursively
+//
+//       // adjust nmp ply and side before re-search
+//       sd->nmpMinPly = ply + 3 * (depth - nmpReduction) / 4;
+//       sd->nmpSide = us;
+//
+//       // do a re-search
+//       int re = alphabeta(pos, sd, beta - 1, beta, nullDepth, false);
+//       // re-adjust nmp ply
+//       sd->nmpMinPly = 0;
+//       if (re >= beta) return v;
+//     }
+//   }
+//
+//   // internal iterative reductions
+//   // if no tt move then reduce depth
+//   if (pvNode && !ttMove)
+//     depth -= 2 + 2 * (found && tten->depth() >= depth);
+//
+//   if (depth <= 0) {
+//     return qsearch(pos, sd, alpha, beta, sd->ttPv[ply]);
+//   }
+//
+//   if (cutNode && depth >= 8 && !ttMove)
+//     depth -= 2;
+//
+//   // probcut
+//   betaCut = beta + 180 - 60 * improving;
+//   if (!pvNode
+//     && depth > 4
+//     && !inCheck
+//     && !sd->extMove
+//     && abs(beta) < VALUE_TB_WIN
+//     && !(tten->depth() >= depth - 3 && ttScore != VALUE_NONE && ttScore < betaCut)) {
+//
+//     assert(betaCut < VALUE_INFINITE);
+//
+//     // init the generator
+//     MoveGen* mg = &sd->moveGen[ply];
+//     mg->init(pos, hd, ply, MOVE_NONE, QSEARCH);
+//
+//     // loop through moves
+//     Move m;
+//     while ((m = mg->next(false))) {
+//
+//       if (m == sd->extMove)
+//         continue;
+//
+//       if (!pos->is_legal(m))
+//         continue;
+//
+//       // make the move
+//       pos->do_move(m, true);
+//       // do a qsearch
+//       int qScore = -qsearch(pos, sd, -betaCut, -betaCut + 1, false);
+//
+//       // if the qScore is greater than betaCut then we do a full search
+//       if (qScore >= betaCut)
+//         qScore = -alphabeta(pos, sd, -betaCut, -betaCut + 1, depth - 4, !cutNode);
+//
+//       // undo the move
+//       pos->undo_move(m);
+//
+//       // check the score again
+//       if (qScore >= betaCut) {
+//         // store the score and move in the TT and return beta
+//         TT.save(key, depth - 3, score_to_tt(qScore, ply), standpat, m, BOUND_LOWER, sd->ttPv[ply]);
+//         return qScore;
+//       }
+//     }
+//   }
+//
+// moves_loop:
+//
+//   // setup movegen
+//   MoveGen* mg = &sd->moveGen[ply];
+//   mg->init(pos, hd, ply, ttMove, PV_SEARCH);
+//   Move m;
+//
+//   int legalMoves = 0;
+//   int quiets     = 0;
+//   int moveCnt    = 0;
+//
+//   U64 prevNodes = sd->searchInfo.nodes;
+//   U64 bestNodes = 0;
+//
+//   // loop through all the pseudo-legal moves until none remain,
+//   // legality is checked before playing a move rather than before
+//   // to increase the performance when looping through large lists
+//   while ((m = mg->next(false))) {
+//
+//     // check if we should skip this move
+//     if (sd->extMove == m) continue;
+//
+//     // check move for legality
+//     if (!pos->is_legal(m))
+//       continue;
+//
+//
+//     // get some info about the move
+//     Square from = from_sq(m);
+//     Square to = to_sq(m);
+//     Piece pc = pos->pc_sq(from);
+//     bool isCapture = pos->is_capture(m);
+//     bool isPromotion = pos->is_promotion(m);
+//     bool givesCheck = pos->gives_check(m);
+//     int see = isCapture ? mg->get_see() : 1;
+//     bool quiet = !isCapture && !isPromotion && !givesCheck;
+//     int newDepth = depth - 1;
+//     int extension = 0;
+//
+//     moveCnt++;
+//
+//     int delta = beta - alpha;
+//     int r = reductions(depth, legalMoves, delta, sd->rootDelta);
+//
+//     if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
+//       int moveDepth = std::max(1, 1 + depth - r);
+//
+//       if (quiet) {
+//         quiets++;
+//
+//         if (mg->can_skip()) continue;
+//
+//
+//         if (depth <= 7 && quiets >= lmp[improving][depth]) mg->skip_quiets();
+//
+//         int history = hd->get_continuation_hist(pc, to, ply)
+//                     + hd->get_continuation_hist(pc, to, ply - 1)
+//                     + hd->get_continuation_hist(pc, to, ply - 3);
+//
+//         if (moveDepth < 6 && history < -HISTORY_LMR3 * depth)
+//           continue;
+//
+//         if (!inCheck
+//           && moveDepth <= 7
+//           && hd->get_max_improvement(from, to)
+//             + 100 * FUTILITY_MARGIN +
+//             + hd->get_eval_hist(us, ply) < alpha)
+//           continue;
+//
+//       }
+//
+//       if (moveDepth <= 5 + quiet * 3
+//         && isCapture
+//         && (see <= -200 * moveDepth))
+//         continue;
+//     }
+//
+//     // singular move extensions
+//     // make sure cannot extend too far
+//     if (ply < sd->rootDepth * 2) {
+//       if ( ply
+//         && m == ttMove
+//         && legalMoves == 0
+//         && !sd->extMove
+//         && depth >= 4 + 2 * (pvNode && tten->is_pv())
+//         && abs(ttScore) < VALUE_TB_WIN
+//         && (tten->bound() & BOUND_LOWER)
+//         && tten->depth() >= depth - 3) {
+//
+//         // init values of singular beta and singular depth
+//         int sBeta = ttScore - (50 + 50 * (sd->ttPv[ply] && !pvNode)) * depth / 50;
+//         int sDepth = (depth - 1) / 2;
+//
+//         // set the extension move as to not prune or enter another extension loop with it
+//         sd->extMove = m;
+//         score = alphabeta(pos, sd, sBeta - 1, sBeta, sDepth, cutNode);
+//         sd->extMove = MOVE_NONE;
+//
+//         if (score < sBeta) {
+//           extension = 1;
+//
+//           if (!pvNode
+//             && score < sBeta - 25
+//             && sd->doubleExtensions[ply] < 12) {
+//             extension = 2;
+//             depth += depth < 10;
+//           }
+//         }
+//
+//         // if subtree still fails high with ttMove being excluded
+//         // can safely return singular beta since ttMove already fails high
+//         else if (sBeta >= beta)
+//           return sBeta;
+//
+//         // negative extensions
+//         else if (ttScore >= beta)
+//           extension = -2 - !pvNode;
+//
+//         // if the ttMove fails low
+//         else if (ttScore <= score)
+//           extension = -1;
+//
+//         mg->init(pos, hd, ply, ttMove, PV_SEARCH);
+//         m = mg->next();
+//       }
+//       // check extensions
+//       else if (givesCheck && depth > 9)
+//         extension = 1;
+//
+//       // quiet tt extensions
+//       else if (pvNode && m == ttMove && hd->is_killer(us, m, ply)
+//               && hd->get_continuation_hist(pc, to, ply) >= 4000)
+//         extension = 1;
+//     }
+//
+//     newDepth += extension;
+//     if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1] + (extension == 2);
+//
+//     // make the move
+//     pos->do_move(m, true);
+//
+//     // adjust reductions based on various heuristics
+//     // decrease reduction if position has been on pv
+//     if (sd->ttPv[ply] && !(pvNode
+//       && ttMove && (tten->bound() & BOUND_UPPER)
+//       && tten->depth() >= depth))
+//       r -= cutNode && tten->depth() >= depth ? 3 : 2;
+//
+//     // decrease reduction if opponent has alot of moves
+//     if (ply && sd->moveGen[ply - 1].leaf_size() > 10)
+//       r--;
+//
+//     // increase lmr if not first move after null move
+//     if (legalMoves && depth > 2 && us == sd->nmpSide)
+//       r++;
+//
+//     // increase reduction for cut nodes
+//     if (cutNode)
+//       r += 2;
+//
+//     // decrease reduction on pv nodes
+//     if (pvNode)
+//       r--;
+//
+//     // increase lmr if position is not improving
+//     r += !improving;
+//
+//     // increase lmr if the static eval is far from alpha
+//     r += std::min(2, std::abs(eval - alpha) / 350);
+//
+//     // decrease lmr if the move is a killer
+//     if (hd->is_killer(us, m, ply)) r--;
+//
+//     // calculate the combined history to adjust reduction
+//     int history = 2 * hd->get_butterfly(us, m)
+//              + hd->get_continuation_hist(pc, to, ply)
+//              + hd->get_continuation_hist(pc, to, ply - 1)
+//              + hd->get_continuation_hist(pc, to, ply - 3) - 4000;
+//
+//     r -= history / (10000 + 4000 * (depth > 5 && depth < 23));
+//
+//     U64 nodeCount = sd->searchInfo.nodes;
+//
+//     // setup a new depth to search with using the reductions and extensions
+//     // never want reductions to extend search further than 1 and
+//     // must clamp the value to avoid any sort of problems
+//     int d = std::clamp(newDepth - r, 1, newDepth + 1);
+//
+//     // LMR search
+//     if (ply && depth >= 2 && moveCnt > 1 + (pvNode && ply <= 1)
+//         && (!tten->is_pv() || !isCapture || (cutNode && sd->moveGen[ply - 1].leaf_size() > 1))) {
+//
+//       // calculate the new depth to search to using the reductions calculated earlier
+//       score = -alphabeta(pos, sd, -alpha - 1, -alpha, d, true);
+//
+//       // do a full re-search if search fails high
+//       if (score > alpha && d < newDepth) {
+//         // adjust parameters to search to
+//         const bool doDeeperSearch     = score > (bestScore + 100 + 10 * (newDepth - d));
+//         const bool doEvenDeeperSearch = score > alpha + 700 && sd->doubleExtensions[ply] <= 6;
+//         const bool doShallowerSearch  = score < bestScore;
+//
+//         sd->doubleExtensions[ply] += doEvenDeeperSearch;
+//
+//         newDepth += doDeeperSearch - doShallowerSearch + doEvenDeeperSearch;
+//
+//         if (newDepth > d)
+//           score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
+//
+//         // calculate a new bonus to update histories
+//         int bonus = score <= alpha ? stat_bonus(newDepth)
+//                   : score >= beta ? stat_bonus(newDepth) : 0;
+//
+//         update_continuation_histories(hd, pos, pc, to, bonus);
+//       }
+//     }
+//
+//     // when lmr is skipped do a full depth search
+//     else if (!pvNode || moveCnt > 1) {
+//       // increase reduction for cutnodes without tt moves
+//       if (!ttMove && cutNode) r += 2;
+//
+//       score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth - (r > 3), !cutNode);
+//     }
+//
+//     // for pv nodes only do a full pv search on the first move or after a fail high
+//     if (pvNode && (moveCnt == 1 || score > alpha)) {
+//       score = -alphabeta(pos, sd, -beta, -alpha, newDepth, false);
+//     }
+//
+//     // undo the move and add it to searched
+//     pos->undo_move(m);
+//     mg->add_searched(m);
+//
+//     assert(score > -VALUE_INFINITE && score < VALUE_INFINITE);
+//
+//     // increment the legal moves since the loop has completed
+//     legalMoves++;
+//
+//     // if we got a new best score we can update the pv and bestscore
+//     if (score > bestScore) {
+//       bestScore = score;
+//       bestMove = m;
+//       if ((ply == 0) && (timeMan->can_continue() || depth <= 2) && sd->id == 0) {
+//         alpha = bestScore;
+//         hd->bestMove = m;
+//       }
+//       if (pvNode && sd->id == 0)
+//         sd->pvTable.update(ply, m);
+//       bestNodes = sd->searchInfo.nodes - nodeCount;
+//
+//       // check for a beta cutoff
+//       if (score >= beta) {
+//         if (ply) sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
+//         if (!sd->searchInfo.timeout && !sd->extMove) {
+//           // put the beta cutoff into the TT
+//           TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
+//         }
+//         // update the move histories
+//         update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
+//         // return the best score so far
+//         return bestScore;
+//       }
+//       else if (score > alpha) {
+//         alpha = score;
+//         if (depth > 2 && depth < 12 && beta < VALUE_KNOWN_WIN && score > -VALUE_KNOWN_WIN)
+//           depth -= 2;
+//       }
+//     }
+//
+//   }
+//
+//   // if there are no legal moves then it's either stalemate or checkmate
+//   // we can find out from checking if we are in check or not
+//   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
+//
+//   if (bestScore <= alpha && ply)
+//     sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
+//
+//   // write the current scores to the hash table
+//   if (!sd->searchInfo.timeout && !sd->extMove) {
+//     TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), bestMove,
+//             bestMove && pvNode ? BOUND_EXACT : BOUND_UPPER, sd->ttPv[ply]);
+//   }
+//
+//   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
+//
+//   // return the best score
+//   return bestScore;
+// }
 
 int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int depth, bool cutNode) {
 
+  // start off by defining some important info used in search
   Color us = pos->get_side();
   bool pvNode = (beta - alpha) != 1;
   int ply = pos->get_ply();
@@ -241,6 +781,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   Move         ttMove     = MOVE_NONE;
   int          standpat   = VALUE_NONE;
   int          eval       = VALUE_NONE;
+  int          betaCut    = VALUE_NONE;
   bool         found      = false;
   bool         inCheck    = pos->checks();
   bool         improving  = false;
@@ -258,177 +799,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     beta = std::min(mate_in(ply + 1), beta);
     if (alpha >= beta) return alpha;
   }
-
-  // set double extensions for singular move extensions
-  if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1];
-
-  // reset the past killer moves
-  hd->reset_killers(us, ply);
-
-  // probe the transposition table for any exisiting entries
-  // so we don't have to re-search the same position
-  TTentry* tten = TT.get(key, found);
-  int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
-  ttMove = found ? tten->move() : MOVE_NONE;
-
-  if (!sd->extMove) sd->ttPv[ply] = pvNode || (found && tten->is_pv());
-
-  // use the score at the given entry
-  // only check for a cutoff if the node is not pv
-  if (!pvNode && !sd->extMove
-    && tten->depth() > depth
-    && ttScore != VALUE_NONE
-    && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER))) {
-
-    // if the tt move is quiet can update the move histories
-    if (ttMove) {
-      if (ttScore >= beta && !pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
-        update_quiet_stats(hd, pos, ttMove, stat_bonus(depth));
-      else if (!pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
-        update_continuation_histories(hd, pos, pos->pc_sq(ttMove), to_sq(ttMove), -stat_bonus(depth));
-    }
-
-    // so long as 50 move rule is not close can return the score
-    if (pos->fifty() < 90) return ttScore;
-  }
-
-  if (inCheck) {
-    standpat = eval = -VALUE_MATE + ply;
-    improving = false;
-    goto moves_loop;
-  }
-  else if (found) {
-    standpat = eval = tten->eval();
-    if (eval == VALUE_NONE)
-      eval = standpat = pos->evaluate();
-    if (ttScore != VALUE_NONE && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER)))
-      eval = ttScore;
-  }
-  else
-    standpat = eval = pos->evaluate();
-
-  // setup improvement across plies
-  if (ply && pos->get_previous_move() != MOVE_NONE) {
-    if (hd->get_eval_hist(!us, ply - 1) > VALUE_TB_LOSS) {
-      int improvement = -standpat - hd->get_eval_hist(!us, ply - 1);
-      hd->set_max_improvement(from_sq(pos->get_previous_move()),
-                              to_sq(pos->get_previous_move()), improvement);
-    }
-  }
-
-  // set the historic eval before we adjust it using the TT
-  hd->set_eval_hist(us, standpat, ply);
-  improving = hd->is_improving(us, standpat, ply);
-
-  // razoring, if the eval is low we can check if it exceeds alpha
-  if (depth <= 3
-    && eval + RAZOR_MARGIN * depth < beta
-    && !sd->extMove
-    && !pvNode) {
-    score = qsearch(pos, sd, alpha, beta, pvNode);
-    if (score < beta) return score;
-  }
-
-  // futility pruning
-  if (   !sd->ttPv[ply]
-      && depth < 9
-      && !sd->extMove
-      && eval - (depth - improving) * FUTILITY_MARGIN >= beta
-      && eval < VALUE_TB_WIN)
-    return eval;
-
-  // null move pruning search
-  if (   !pvNode
-      && eval < VALUE_KNOWN_WIN
-      && !sd->extMove
-      && pos->get_current_move() != MOVE_NONE
-      && eval >= beta - 15 * depth - (improving * 200)
-      && pos->non_pawn_mat(us)
-      && (ply >= sd->nmpMinPly || us != sd->nmpSide)) {
-
-    // setup depth adjustments
-    int nmpReduction = depth / 4 + 3;
-    if (eval - beta < 300) nmpReduction = (eval - beta) / FUTILITY_MARGIN;
-
-    int nullDepth = depth - nmpReduction - 3;
-
-    pos->do_null_move();
-    int v = -alphabeta(pos, sd, -beta, 1 - beta, nullDepth, !cutNode);
-    pos->undo_null_move();
-
-    // check for beta cutoff
-    if (v >= beta) {
-      // don't return a mate score
-      if (v > VALUE_KNOWN_WIN) v = beta;
-      if (abs(beta) < VALUE_KNOWN_WIN && depth < 14) return v;
-
-      // adjust nmp ply and side before re-search
-      sd->nmpMinPly = ply + 3 * (depth - nmpReduction) / 4;
-      sd->nmpSide = us;
-
-      // do a re-search
-      v = alphabeta(pos, sd, beta - 1, beta, nullDepth, false);
-      // re-adjust nmp ply
-      sd->nmpMinPly = 0;
-      if (v >= beta) return v;
-    }
-  }
-
-  // internal iterative reductions
-  // if no tt move then reduce depth
-  if (pvNode && !ttMove)
-    depth -= 2 + 2 * (found && tten->depth() >= depth);
-
-  if (depth <= 0)
-    return qsearch(pos, sd, alpha, beta, true);
-
-  if (cutNode && depth >= 8 && !ttMove)
-    depth -= 2;
-
-  // probcut
-  int betaCut = beta + 180 - 60 * improving;
-  if (!pvNode
-    && depth > 4
-    && !inCheck
-    && !sd->extMove
-    && abs(beta) < VALUE_TB_WIN
-    && !(tten->depth() >= depth - 3 && ttScore != VALUE_NONE && ttScore < probCutBeta)) {
-
-    assert(probCutBeta < VALUE_INFINITE);
-
-    // init the generator
-    MoveGen* mg = &sd->moveGen[ply];
-    mg->init(pos, hd, ply, MOVE_NONE, QSEARCH);
-
-    // loop through moves
-    Move m;
-    while ((m = mg->next(false))) {
-
-      if (m == sd->extMove)
-        continue;
-
-      if (!pos->is_legal(m))
-        continue;
-
-      // make the move
-      pos->do_move(m, true);
-      // do a qsearch
-      int qScore = -qsearch(pos, sd, -probCutBeta, -probCutBeta + 1, false);
-
-      // if the qScore is greater than betaCut then we do a full search
-      if (qScore >= probCutBeta)
-        qScore = -alphabeta(pos, sd, -probCutBeta, -probCutBeta + 1, depth - 4, !cutNode);
-
-      // undo the move
-      pos->undo_move(m);
-
-      // check the score again
-      if (qScore >= probCutBeta) {
-        // store the score and move in the TT and return beta
-        TT.save(key, depth - 3, score_to_tt(qScore, ply), standpat, m, BOUND_LOWER, sd->ttPv[ply]);
-        return score - (probCutBeta - beta);
-      }
-    }
+  else {
+    sd->rootDelta = beta - alpha;
   }
 
 moves_loop:
@@ -457,7 +829,6 @@ moves_loop:
     if (!pos->is_legal(m))
       continue;
 
-
     // get some info about the move
     Square from = from_sq(m);
     Square to = to_sq(m);
@@ -470,241 +841,87 @@ moves_loop:
     int newDepth = depth - 1;
     int extension = 0;
 
+    // increment the move counter
     moveCnt++;
-
-    int r = reductions(depth, legalMoves);
-
-    if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
-      int moveDepth = std::max(1, 1 + depth - LMR[depth][legalMoves]);
-
-      if (quiet) {
-        quiets++;
-
-        if (mg->can_skip()) continue;
-
-
-        if (depth <= 7 && quiets >= lmp[improving][depth]) mg->skip_quiets();
-
-        int history = hd->get_continuation_hist(pc, to, ply)
-                    + hd->get_continuation_hist(pc, to, ply - 1)
-                    + hd->get_continuation_hist(pc, to, ply - 3);
-
-        if (moveDepth < 6 && history < -HISTORY_LMR3 * depth)
-          continue;
-
-        if (!inCheck
-          && moveDepth <= 7
-          && hd->get_max_improvement(from, to)
-            + 100 * FUTILITY_MARGIN +
-            + hd->get_eval_hist(us, ply) < alpha)
-          continue;
-
-      }
-
-      if (moveDepth <= 5 + quiet * 3
-        && isCapture
-        && (see <= -200 * moveDepth))
-        continue;
-    }
-
-    // singular move extensions
-    // make sure cannot extend too far
-    if (ply < sd->rootDepth * 2) {
-      if ( ply
-        && m == ttMove
-        && legalMoves == 0
-        && !sd->extMove
-        && depth >= 4 + 2 * (pvNode && tten->is_pv()
-        && abs(ttScore) < VALUE_TB_WIN && (tten->bound() & BOUND_LOWER)
-        && tten->depth() >= depth - 3)) {
-
-        // init values of singular beta and singular depth
-        int sBeta = ttScore - (50 + 50 * (sd->ttPv[ply] && !pvNode)) * depth / 50;
-        int sDepth = (depth - 1) / 2;
-
-        // set the extension move as to not prune or enter another extension loop with it
-        sd->extMove = m;
-        score = alphabeta(pos, sd, sBeta - 1, sBeta, sDepth, cutNode);
-        sd->extMove = MOVE_NONE;
-
-        if (score < sBeta) {
-          extension = 1;
-
-          if (!pvNode
-            && score < sBeta - 25
-            && sd->doubleExtensions[ply] < 12) {
-            extension = 2;
-            depth += depth < 15;
-          }
-        }
-
-        // if subtree still fails high with ttMove being excluded
-        // can safely return singular beta since ttMove already fails high
-        else if (sBeta >= beta)
-          return sBeta;
-
-        // negative extensions
-        else if (ttScore >= beta)
-          extension = -2 - !pvNode;
-
-        // if the ttMove fails low
-        else if (ttScore <= score)
-          extension = -1;
-
-        mg->init(pos, hd, ply, ttMove, PV_SEARCH);
-        m = mg->next();
-      }
-      // check extensions
-      else if (givesCheck && depth > 9)
-        extension = 1;
-
-      // quiet tt extensions
-      else if (pvNode && m == ttMove && hd->is_killer(us, m, ply)
-              && hd->get_continuation_hist(pc, to, ply) >= 4000)
-        extension = 1;
-    }
-
-    newDepth += extension;
-    if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1] + (extension == 2);
 
     // make the move
     pos->do_move(m, true);
 
-    // adjust reductions based on various heuristics
-    // decrease reduction if position has been on pv
-    if (sd->ttPv[ply] && !(pvNode
-      && ttMove && (tten->bound() & BOUND_UPPER)
-      && tten->depth() >= depth))
-      r -= cutNode && tten->depth() >= depth ? 3 : 2;
-
-    // decrease reduction if opponent has alot of moves
-    if (ply && sd->moveGen[ply - 1].leaf_size() > 10)
-      r--;
-
-    // increase lmr if not first move after null move
-    if (legalMoves && depth > 2 && us == sd->nmpSide)
-      r++;
-
-    // increase reduction for cut nodes
-    if (cutNode)
-      r += 2;
-
-    // decrease reduction on pv nodes
-    if (pvNode)
-      r--;
-
-    // increase lmr if position is not improving
-    r += !improving;
-
-    // decrease lmr if the move is a killer
-    if (hd->is_killer(us, m, ply)) r--;
-
-    // calculate the combined history to adjust reduction
-    int history = 2 * hd->get_butterfly(us, m)
-             + hd->get_continuation_hist(pc, to, ply)
-             + hd->get_continuation_hist(pc, to, ply - 1)
-             + hd->get_continuation_hist(pc, to, ply - 3) - 4000;
-
-    r -= history / (10000 + 4000 * (depth > 5 && depth < 23));
-
+    // keep track of the amount of nodes
     U64 nodeCount = sd->searchInfo.nodes;
 
-    // setup a new depth to search with using the reductions and extensions
-    // never want reductions to extend search further than 1 and
-    // must clamp the value to avoid any sort of problems
-    int d = std::clamp(newDepth - r, 1, newDepth + 1);
-
-    // conditions to do LMR
-    if (ply && depth >= 2 && moveCnt > 1 + (pvNode && ply <= 1)
+    // search the position with Late Move Reductions
+    // the conditions to enter LMR are that we must be past a starting depth
+    // we must have already searched a single move in the position
+    // and the position cannot have been on the pv, a capture or a followup from a single move position
+    if (ply
+      && depth >= 2
+      && moveCnt > 1 + (pvNode && ply <= 1)
       && (!sd->ttPv[ply] || !isCapture || (cutNode && sd->moveGen[ply - 1].leaf_size() > 1))) {
 
-      score = -alphabeta(pos, sd, -alpha - 1, -alpha, d, !cutNode);
-
-      // do a full depth search if the search fails high
-      // and the reductions did not apply an extension
-      // only search if new depth exceeds what previously was searched using reductions
-      // need to check again since shallower search can sub 1 from depth
-      if (score > alpha && d < newDepth) {
-
-        score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
-
-        // calculate a bonus to update the quiet histories using the score found
-        // this score is the result of the greatest depth search we do here
-        int bonus = score <= alpha ? -stat_bonus(newDepth)
-                  : score >= beta ? stat_bonus(newDepth) : 0;
-
-        update_continuation_histories(hd, pos, pc, to, bonus);
-      }
+      // do the search with reductions applied
+      score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, true);
     }
 
-    // perform a full depth search when late move reductions are skipped
+    // when the conditions for LMR are not met enter a full depth search
+    // reduce this search if there is no ttmove and it is a cutnode
     else if (!pvNode || moveCnt > 1) {
-      // increase the reduction for a cut node without a ttMove
-      if (!ttMove && cutNode) r += 2;
+      // increase reductions for cutnodes
 
-      // perform the search and if the reduction is high, can search with high confidence
-      // that a reduction of 1 is earned through the heuristics used
-      score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth - (r > 3), !cutNode);
+      score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
     }
 
-    // only for pv nodes do a full pv search or after a  fail high
-    if (pvNode && (moveCnt == 1 || score > alpha))
+    // for pv-nodes do a full re-search upon failing high in previous search
+    if (pvNode && (moveCnt == 1 || score > alpha)) {
+      // perform the re-search
       score = -alphabeta(pos, sd, -beta, -alpha, newDepth, false);
+    }
 
-    // undo the move and add it to searched
+    // undo the move and add it to searched moves
     pos->undo_move(m);
     mg->add_searched(m);
 
     assert(score > -VALUE_INFINITE && score < VALUE_INFINITE);
 
-    // increment the legal moves since the loop has completed
+    // increment the legalmoves of the position
     legalMoves++;
 
-    // if we got a new best score we can update the pv and bestscore
+    // check for a new bestmove by checking the current score against the historic best score
     if (score > bestScore) {
+      // update the bestscore and bestmove
       bestScore = score;
       bestMove = m;
-      if ((ply == 0) && (timeMan->can_continue() || depth <= 2) && sd->id == 0) {
+
+      // check for low depth search and rootnode to update alpha and global bestmove
+      if (!ply && (timeMan->can_continue() || depth <= 2) && sd->id == 0) {
         alpha = bestScore;
         hd->bestMove = m;
       }
-      if (pvNode && sd->id == 0)
+
+      // update the pv at pv-nodes
+      if (pvNode && sd->id == 0) {
         sd->pvTable.update(ply, m);
+      }
+
+      // write the amount of nodes searched in this recursive layer
       bestNodes = sd->searchInfo.nodes - nodeCount;
 
-      // check for a beta cutoff
+      // check for a beta-cutoff
       if (score >= beta) {
-        if (ply) sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
-        if (!sd->searchInfo.timeout && !sd->extMove) {
-          // put the beta cutoff into the TT
-          TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
-        }
-        // update the move histories
-        update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
-        // return the best score so far
+        // return the bestscore
         return bestScore;
       }
+      // check for a fail high
       else if (score > alpha) {
+        // update alpha
         alpha = score;
-        if (depth > 2 && depth < 12 && beta < VALUE_KNOWN_WIN && score > -VALUE_KNOWN_WIN)
-          depth -= 2;
       }
     }
-
   }
 
   // if there are no legal moves then it's either stalemate or checkmate
   // we can find out from checking if we are in check or not
   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
-
-  if (bestScore <= alpha && ply)
-    sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
-
-  // write the current scores to the hash table
-  if (!sd->searchInfo.timeout && !sd->extMove) {
-    TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), bestMove,
-            bestMove && pvNode ? BOUND_EXACT : BOUND_UPPER, sd->ttPv[ply]);
-  }
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
 
@@ -745,7 +962,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   // so we don't have to re-search the same position
   TTentry* tten = TT.get(key, found);
   int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
-  bool ttpv   = found && tten->is_pv();
+  bool ttpv   = sd->ttPv[ply];
 
   // at non-pv nodes check for an early cutoff
   if (found
@@ -863,7 +1080,6 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
 
   return bestScore;
 }
-
 
 U64 Search::get_nodes() const {
   U64 nodes = 0;

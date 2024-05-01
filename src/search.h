@@ -26,6 +26,7 @@ struct SearchData {
   int         id;
   int         ply;
   int         rootDepth;
+  int         rootDelta;
   int         nmpMinPly;
   bool        ttPv[MAX_INTERNAL_PLY + 1] = {0};
   Color       nmpSide;
