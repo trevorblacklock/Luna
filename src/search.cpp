@@ -828,7 +828,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
       if (ttScore >= beta && !pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
         update_quiet_stats(hd, pos, ttMove, stat_bonus(depth));
       else if (!pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
-        update_continuation_histories(hd, pos, pos->pc_sq(ttMove), to_sq(ttMove), -stat_bonus(depth));
+        update_continuation_histories(hd, pos, pos->pc_sq(from_sq(ttMove)), to_sq(ttMove), -stat_bonus(depth));
     }
     // so long as 50 move rule is not close can return the score
     if (pos->fifty() < 90) return ttScore;
@@ -924,6 +924,52 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     depth--;
   }
 
+  // probcut here is based on the implementation in Stockfish
+  betaCut = beta + 180 - 60 * improving;
+  if (!pvNode
+    && depth > 4
+    && !inCheck
+    && !sd->extMove
+    && abs(beta) < VALUE_TB_WIN
+    && !(tten->depth() >= depth - 3 && ttScore != VALUE_NONE && ttScore < betaCut)) {
+
+    assert(betaCut < VALUE_INFINITE);
+
+    // init the generator
+    MoveGen* mg = &sd->moveGen[ply];
+    mg->init(pos, hd, ply, MOVE_NONE, QSEARCH);
+
+    // loop through moves
+    Move m;
+    while ((m = mg->next(false))) {
+
+      if (m == sd->extMove)
+        continue;
+
+      if (!pos->is_legal(m))
+        continue;
+
+      // make the move
+      pos->do_move(m, true);
+      // do a qsearch
+      int qScore = -qsearch(pos, sd, -betaCut, -betaCut + 1, false);
+
+      // if the qScore is greater than betaCut then we do a full search
+      if (qScore >= betaCut)
+        qScore = -alphabeta(pos, sd, -betaCut, -betaCut + 1, depth - 4, !cutNode);
+
+      // undo the move
+      pos->undo_move(m);
+
+      // check the score again
+      if (qScore >= betaCut) {
+        // store the score and move in the TT and return beta
+        TT.save(key, depth - 3, score_to_tt(qScore, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
+        return betaCut;
+      }
+    }
+  }
+
 moves_loop:
 
   // setup movegen
@@ -990,9 +1036,9 @@ moves_loop:
             + moveDepth * FUTILITY_MARGIN + 100
             + hd->get_eval_hist(us, ply) < alpha)
           continue;
-
       }
 
+      // prune the move if it has a low see value
       if (moveDepth <= 5 + quiet * 3
         && piece_type(pc) < piece_type(pos->pc_sq(to))
         && (isCapture ? mg->get_see() : pos->see_eval(m))
@@ -1115,7 +1161,7 @@ moves_loop:
       }
 
       // update the pv at pv-nodes
-      if (pvNode && sd->id == 0) {
+      if (pvNode && sd->id == 0 && !sd->searchInfo.timeout) {
         sd->pvTable.update(ply, m);
       }
 
