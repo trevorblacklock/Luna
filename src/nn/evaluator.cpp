@@ -12,11 +12,11 @@ namespace Luna::NeuralNet {
 inline int32_t sum_register_32(vec_reg_32& reg) {
 #if defined(__AVX512F__)
   const __m256i reduced8 = _mm256_add_epi16(_mm512_castsi512_si256(reg), _mm512_extracti32x8_epi32(reg, 1));
-#elif defined(__AVX2__) || defined(__AVX__)
+#elif defined(__AVX2__)
   const __m256i reduced8 = reg;
 #endif
 
-#if defined(__AVX512F__) || defined(__AVX2__) || defined(__AVX__)
+#if defined(__AVX512F__) || defined(__AVX2__)
   const __m128i reduced4 = _mm_add_epi32(_mm256_castsi256_si128(reduced8), _mm256_extractf128_si256(reduced8, 1));
 #else
   const __m128i reduced4 = reg;
@@ -37,13 +37,11 @@ Evaluator::Evaluator() {
 }
 
 Evaluator::Evaluator(const Evaluator& eval) {
-  this->refreshTable->reset();
   this->history = eval.history;
   this->historyIdx = eval.historyIdx;
 }
 
 Evaluator& Evaluator::operator=(const Evaluator& eval) {
-  this->refreshTable->reset();
   this->history = eval.history;
   this->historyIdx = eval.historyIdx;
   return *this;
