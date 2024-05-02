@@ -812,6 +812,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
   ttMove = found ? tten->move() : MOVE_NONE;
 
+  assert(ttScore == VALUE_NONE || (ttScore < VALUE_INFINITE && ttScore > -VALUE_INFINITE));
+
   // update if move has been on the pv only if there is no extension move
   if (!sd->extMove) sd->ttPv[ply] = pvNode || (found && tten->is_pv());
 
@@ -933,7 +935,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     && abs(beta) < VALUE_TB_WIN
     && !(tten->depth() >= depth - 3 && ttScore != VALUE_NONE && ttScore < betaCut)) {
 
-    assert(betaCut < VALUE_INFINITE);
+    assert(betaCut < VALUE_INFINITE && betaCut > -VALUE_INFINITE);
 
     // init the generator
     MoveGen* mg = &sd->moveGen[ply];
@@ -1163,6 +1165,7 @@ moves_loop:
       // increase reductions for cutnodes
 
       score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
+
     }
 
     // for pv-nodes do a full re-search upon failing high in previous search
@@ -1277,6 +1280,8 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
   bool ttpv   = sd->ttPv[ply];
 
+  assert(ttScore == VALUE_NONE || (ttScore < VALUE_INFINITE && ttScore > -VALUE_INFINITE));
+
   // at non-pv nodes check for an early cutoff
   if (found
       && !pvNode
@@ -1291,14 +1296,16 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   else {
     // check for static eval in the TT
     if (found) {
+
       // ensure stored value is legal and not corrupted
-      if ((standpat = bestScore = tten->eval()) == VALUE_NONE)
+      if ((standpat = bestScore) == -VALUE_INFINITE)
         standpat = bestScore = pos->evaluate();
 
       // check if tt value can be used as better standpat
       if (ttScore != VALUE_NONE
           && (tten->bound() & (ttScore > bestScore ? BOUND_LOWER : BOUND_UPPER)))
           bestScore = ttScore;
+
     }
     else {
       // static evaluation of position
@@ -1385,9 +1392,12 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
     return mated_in(ply);
   }
 
-  // save info into the TT
-  TT.save(key, ttDepth, score_to_tt(bestScore, ply), standpat, bestMove,
-          bestScore >= beta ? BOUND_LOWER : BOUND_UPPER, ttpv);
+  // only store reputable values in the TT
+  // if there is no move count the stored values will likely just be inflated
+  if (moveCnt) {
+    TT.save(key, ttDepth, score_to_tt(bestScore, ply), standpat, bestMove,
+            bestScore >= beta ? BOUND_LOWER : BOUND_UPPER, ttpv);
+  }
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
 
