@@ -1156,6 +1156,8 @@ moves_loop:
         // calculate a bonus to update continuation histories
         int bonus = score <= alpha ? stat_bonus(newDepth)
                   : score >= beta ? stat_bonus(newDepth) : 0;
+
+        update_continuation_histories(hd, pos, pc, to, bonus);
       }
     }
 
@@ -1314,6 +1316,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
 
     // immediately check if static eval is above beta
     if (bestScore >= beta) {
+      assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
       // if the tt was not hit, can write this value into the TT
       if (!found)
         TT.save(key, 0, score_to_tt(bestScore, ply), standpat, MOVE_NONE, BOUND_LOWER, false);
