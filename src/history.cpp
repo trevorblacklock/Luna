@@ -4,6 +4,7 @@ namespace Luna {
 
 int History::get_history(Position *p, Move m) const {
   assert(m);
+  assert(check_move(m));
   int     val;
   U64     threats, threatByPawn, threatByMinor, threatByRook;
   int     ply  = p->get_ply();
@@ -66,6 +67,8 @@ void History::clear() {
   memset(captureHistory, 0, sizeof(captureHistory));
   memset(evalHistory, 0, sizeof(evalHistory));
   memset(continuationHistory, 0, sizeof(continuationHistory));
+  memset(maxImprovement, 0, sizeof(maxImprovement));
+  bestMove = MOVE_NONE;
 }
 
 void History::set_killer(Color side, Move m, int ply) {
@@ -84,14 +87,15 @@ void History::set_eval_hist(Color side, int eval, int ply) {
 }
 
 void History::set_continuation_hist(Piece pc, Square sq, int ply, int val) {
-  assert(ply < MAX_INTERNAL_PLY && ply + 7 >= 0);
   this->continuationHistory[ply + 7][pc][sq] = val;
 }
 
 void History::set_capture_hist(Position *p, Move m, int val) {
   Square from = from_sq(m);
   Square to = to_sq(m);
-  this->captureHistory[p->pc_sq(from)][to][piece_type(p->pc_sq(to))] = val;
+  Piece pc = p->pc_sq(from);
+  PieceType pt = piece_type(p->pc_sq(to));
+  this->captureHistory[pc][to][pt] = val;
 }
 
 void History::set_max_improvement(Square from, Square to, int value) {
@@ -104,11 +108,12 @@ void History::reset_killers(Color side, int ply) {
 }
 
 Move History::get_killer(Color side, int ply, int id) const {
+  assert(ply >= 0 && ply < MAX_INTERNAL_PLY + 2);
   return this->killers[side][ply][id];
 }
 
 int History::get_butterfly(Color side, Move m) const {
-  return this->butterflyHistory[side][m & 0xFFF];
+  return this->butterflyHistory[side][sq_combo_idx(m)];
 }
 
 int History::get_capture_hist(Piece pc, Square to, PieceType pt) const {
@@ -116,7 +121,6 @@ int History::get_capture_hist(Piece pc, Square to, PieceType pt) const {
 }
 
 int History::get_continuation_hist(Piece pc, Square sq, int ply) const {
-  assert(ply < MAX_INTERNAL_PLY && ply + 7 >= 0);
   return this->continuationHistory[ply + 7][pc][sq];
 }
 
