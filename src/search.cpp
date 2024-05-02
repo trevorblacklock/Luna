@@ -92,9 +92,9 @@ void Search::set_threads(int cnt) {
 // returns best move found from the search, starts and stops all threads
 Move Search::search(Position *pos, TimeMan *tm, int id) {
   // setup the search depth if given, else set it to a max
-  int searchDepth = MAX_PLY;
+  int searchDepth = MAX_PLY - 1;
   if (tm->depth_limit.enabled)
-    searchDepth = std::min(MAX_PLY, (int)tm->depth_limit.val);
+    searchDepth = std::min(MAX_PLY - 1, (int)tm->depth_limit.val);
   // if this function is called with the main thread (from UCI) then setup other threads
   // also setup base search paramaters and clear thread data for all threads
   if (id == 0) {
@@ -139,19 +139,30 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     else {
       // give a size for our aspiration window to change
       int window = 10;
+      bool dropout = false;
       // setup alpha beta and depth adjustment
-      int alpha = std::max(score - window, -(int)VALUE_INFINITE);
-      int beta = std::min(score + window, (int)VALUE_INFINITE);
+      int alpha = std::clamp(score - window, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
+      int beta = std::clamp(score + window, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
       int newDepth = d;
       // continue with iterative deepening search until time is out
       while (tm->can_continue()) {
+        // set a new depth and update the searches root depth
         newDepth = newDepth < d - 3 ? d - 3 : newDepth;
         sd->rootDepth = newDepth;
+
+        // run the search
         score = alphabeta(&newPos, sd, alpha, beta, newDepth, false);
+
+        // check for a dropout
+        if (dropout) break;
+
+        // update the search window
         window += window;
+
         // don't increase window past 500
         if (window > 500)
           window = VALUE_MATE_IN;
+
         // adjust alpha and beta depending on the search dropout
         if (score >= beta) {
           beta += window;
@@ -162,6 +173,14 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
           alpha -= window;
         }
         else break;
+
+        // before iterating back ensure alpha and beta are within infinite bounds
+        // if alpha and beta are updated beyond bounds can clamp them and flag for final search
+        if (beta > VALUE_INFINITE || alpha < -VALUE_INFINITE) {
+          dropout = true;
+          beta = std::min(beta, (int)VALUE_INFINITE);
+          alpha = std::max(alpha, -(int)VALUE_INFINITE);
+        }
       }
     }
     if (!tm->can_continue()) break;
@@ -204,8 +223,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     timeMan->stop_search();
   }
 
-  assert(ply >= 0 && ply < MAX_SEARCH_PLY);
-
   // update the seldepth
   if (ply > sd->searchInfo.seldepth)
     sd->searchInfo.seldepth = ply;
@@ -214,8 +231,18 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   sd->pvTable(ply).length = 0;
 
   // go into a q-search if depth reaches zero
-  if (depth <= 0 || depth > MAX_PLY || ply > MAX_SEARCH_PLY)
+  if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
     return qsearch(pos, sd, alpha, beta, pvNode);
+
+  assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
+  // assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
+  if (!(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE)) {
+    std::cerr << alpha << std::endl;
+    std::cerr << beta << std::endl;
+    std::cerr << *pos << std::endl;
+    abort();
+  }
+  assert(depth >= 0 && depth < MAX_PLY);
 
   // increment nodes
   sd->searchInfo.nodes++;
@@ -223,14 +250,16 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // check for a force stop
   if (timeMan->stop) {
     sd->searchInfo.timeout = true;
-    return beta;
+    // clamp beta to be within search bounds
+    return std::clamp(beta, -VALUE_INFINITE + 1, VALUE_INFINITE - 1);
   }
 
   // if time is out we fail high to stop the search and we only check every 1024 nodes
   if (sd->searchInfo.nodes % 1024 == 0 && sd->id == 0 && !timeMan->can_continue()) {
     sd->searchInfo.timeout = true;
     timeMan->stop_search();
-    return beta;
+    // clamp beta to be within search bounds
+    return std::clamp(beta, -VALUE_INFINITE + 1, VALUE_INFINITE - 1);
   }
 
   // get all the search info needed
@@ -252,8 +281,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   if (ply) {
 
     // draw randomization
-    if (pos->is_draw() || ply >= MAX_PLY) {
-      return (ply >= MAX_SEARCH_PLY && !inCheck) ? pos->evaluate() : 8 - (sd->searchInfo.nodes & 0xF);
+    if (pos->is_draw() || ply >= MAX_INTERNAL_PLY) {
+      return (ply >= MAX_INTERNAL_PLY && !inCheck) ? pos->evaluate() : 8 - (sd->searchInfo.nodes & 0xF);
     }
 
     // mate distance pruning
@@ -397,11 +426,11 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     && abs(beta) < VALUE_TB_WIN
     && !(tten->depth() >= depth - 3 && ttScore != VALUE_NONE && ttScore < betaCut)) {
 
-    assert(betaCut < VALUE_INFINITE && betaCut > -VALUE_INFINITE);
-
     // init the generator
     MoveGen* mg = &sd->moveGen[ply];
     mg->init(pos, hd, ply, MOVE_NONE, QSEARCH);
+
+    assert(betaCut < VALUE_INFINITE && betaCut > -VALUE_INFINITE);
 
     // loop through moves
     Move m;
@@ -524,6 +553,8 @@ moves_loop:
         // init values of singular beta and singular depth
         int sBeta = ttScore - (50 + 50 * (sd->ttPv[ply] && !pvNode)) * depth / 50;
         int sDepth = (depth - 1) / 2;
+
+        assert(sBeta > -VALUE_INFINITE && sBeta < VALUE_INFINITE);
 
         // set the extension move as to not prune or enter another extension loop with it
         sd->extMove = m;
@@ -732,12 +763,12 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   Color    us        = pos->get_side();
 
   // check if theres a move that causes a draw
-  if (pos->is_draw() || ply >= MAX_SEARCH_PLY) {
+  if (pos->is_draw() || ply >= MAX_INTERNAL_PLY) {
     // draw randomization
-    return (ply >= MAX_SEARCH_PLY && !inCheck) ? pos->evaluate() : (sd->searchInfo.nodes & 0xF);
+    return (ply >= MAX_INTERNAL_PLY&& !inCheck) ? pos->evaluate() : (sd->searchInfo.nodes & 0xF);
   }
 
-  assert(ply >= 0 && ply < MAX_SEARCH_PLY);
+  assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
 
   // probe the transposition table for any exisiting entries
   // so we don't have to re-search the same position

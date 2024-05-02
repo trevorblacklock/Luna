@@ -34,8 +34,7 @@ typedef uint32_t Evaluation;
 typedef uint16_t Move;
 
 constexpr int MAX_PLY = 128;
-constexpr int MAX_INTERNAL_PLY = 255;
-constexpr int MAX_SEARCH_PLY = 235;
+constexpr int MAX_INTERNAL_PLY = 246;
 constexpr int MAX_MOVES = 256;
 
 constexpr char STARTPOS[] = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
