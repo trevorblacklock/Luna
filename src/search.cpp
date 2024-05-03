@@ -367,10 +367,11 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
 
   // futility pruning
   if (   !sd->ttPv[ply]
-      && depth < 9
       && !sd->extMove
+      && depth < 9
       && eval - (depth - improving) * FUTILITY_MARGIN >= beta
-      && eval < VALUE_TB_WIN)
+      && eval < VALUE_TB_WIN
+      && !ttMove)
     return eval;
 
   // null move pruning search
@@ -378,9 +379,12 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
       && eval < VALUE_KNOWN_WIN
       && !sd->extMove
       && pos->get_current_move() != MOVE_NONE
-      && eval >= beta - 15 * depth - (improving * 200)
+      && eval >= standpat
+      && eval >= beta
+      && standpat >= beta - 15 * depth - (improving * 200)
       && pos->non_pawn_mat(us)
-      && (ply >= sd->nmpMinPly || us != sd->nmpSide)) {
+      && beta > -VALUE_KNOWN_WIN
+      && ply >= sd->nmpMinPly) {
 
     // setup depth adjustments
     int nmpReduction = depth / 4 + 3;
@@ -507,7 +511,7 @@ moves_loop:
     int delta = beta - alpha;
     int r = reductions(depth, legalMoves, delta, sd->rootDelta);
 
-    if (ply > 0 && legalMoves > 0 && bestScore > VALUE_TB_LOSS) {
+    if (ply && pos->non_pawn_mat(us) && bestScore > VALUE_TB_LOSS) {
       // find a crude depth estimation
       int moveDepth = std::max(1, 1 + depth - r);
 
@@ -518,9 +522,11 @@ moves_loop:
         // if we have searched enough quiet moves skip this move
         if (mg->can_skip()) continue;
 
+        int quietPruning = improving ? (3 + depth * depth) : (3 + depth * depth) / 2;
+
         // if the number of quiets searched passes a threshold
         // set a flag to not search any more quiet moves
-        if (depth <= 7 && quiets >= lmp[improving][depth]) mg->skip_quiets();
+        if (quiets >= quietPruning) mg->skip_quiets();
 
         // prune quiet moves that are unlikely to improve alpha
         if (!inCheck
