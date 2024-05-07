@@ -15,7 +15,7 @@ endif
 # File name
 NAME = luna
 MAJOR = 2
-MINOR = 1
+MINOR = 2
 
 # Source code directory
 ROOT := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
