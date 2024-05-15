@@ -14,7 +14,7 @@ Suported UCI options include:
 To structure a command to change a UCI option, input the following into the engine:
 
 ```
-setoption name "*option name*" value "*value to set*"
+setoption name "option name" value "value to set"
 ```
 
 An example to set the Hash table of the engine to 64MB would be as follows:
