@@ -235,13 +235,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     return qsearch(pos, sd, alpha, beta, pvNode);
 
   assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
-  // assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
-  if (!(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE)) {
-    std::cerr << alpha << std::endl;
-    std::cerr << beta << std::endl;
-    std::cerr << *pos << std::endl;
-    abort();
-  }
+  assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
   assert(depth >= 0 && depth < MAX_PLY);
 
   // increment nodes
@@ -511,7 +505,7 @@ moves_loop:
     int delta = beta - alpha;
     int r = reductions(depth, legalMoves, delta, sd->rootDelta);
 
-    if (ply && pos->non_pawn_mat(us) && bestScore > VALUE_TB_LOSS) {
+    if (ply && pos->non_pawn_mat(us) && legalMoves && bestScore > VALUE_TB_LOSS) {
       // find a crude depth estimation
       int moveDepth = std::max(1, 1 + depth - r);
 
@@ -571,10 +565,10 @@ moves_loop:
           extension = 1;
 
           if (!pvNode
-            && score < sBeta - 25
+            && score < sBeta
             && sd->doubleExtensions[ply] < 12) {
             extension = 2;
-            depth += depth < 10;
+            depth += depth < 12;
           }
         }
 
@@ -629,6 +623,9 @@ moves_loop:
 
     // decrease lmr if move is a killer
     r -= hd->is_killer(us, m, ply);
+
+    // if the history score is high set reductions to zero
+    r *= (history < 4000);
 
     // setup a new depth to search with using the reductions and extensions
     // never want reductions to extend search further than 1 and
@@ -761,8 +758,8 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   bool     found     = false;
   int      ply       = pos->get_ply();
   int      bestScore = -VALUE_INFINITE;
-  int      ttDepth   = 0;
   int      standpat;
+  int      ttDepth   = 0;
   int      node      = BOUND_UPPER;
   Move     bestMove  = MOVE_NONE;
   bool     inCheck   = pos->checks();
@@ -788,6 +785,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   if (found
       && !pvNode
       && ttScore != VALUE_NONE
+      && tten->depth() >= inCheck
       && (tten->bound() & (ttScore >= beta ? BOUND_LOWER : BOUND_UPPER)))
       return ttScore;
 
