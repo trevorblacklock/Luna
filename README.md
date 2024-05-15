@@ -35,5 +35,9 @@ cd src
 make -j pgo
 ```
 
+To compile with Windows it is recommended to use [MSYS2][msys-link] and mingw-w64 as other
+compilation methods on Windows have not been tested or verified.
+
 [cutechess-link]: https://github.com/cutechess/cutechess
 [arena-link]: https://www.playwitharena.de/
+[msys-link]: https://www.msys2.org/
