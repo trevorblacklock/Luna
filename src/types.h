@@ -13,7 +13,7 @@
 # include <cassert>
 
 // define allocation and free for windows or linux
-inline void* aligned_alloc(size_t alignment, size_t size) {
+inline void* aligned_malloc(size_t alignment, size_t size) {
   // make sure size of the allocation is larger than the alignment
   assert(size > alignment);
   // also make sure neither are zero

@@ -49,7 +49,7 @@ void TTtable::resize(size_t mb) {
   // setup to allocate it alligned to a power of 2
   constexpr size_t alignment = 2 * 1024 * 1024;
   size_t allocSize = ((size + alignment - 1) / alignment) * alignment;
-  entries = static_cast<TTentry*>(aligned_alloc(alignment, allocSize));
+  entries = static_cast<TTentry*>(aligned_malloc(alignment, allocSize));
   // setup size and num entries in class
   sizeEntries = allocSize;
   numEntries = allocSize / sizeof(TTentry);
