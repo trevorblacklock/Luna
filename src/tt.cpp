@@ -43,13 +43,13 @@ void TTtable::save(U64 key, int depth, int score, int eval, Move m, int type, bo
 
 void TTtable::resize(size_t mb) {
   // clear entries if they already exist
-  if (entries) free(entries);
+  if (entries) this->dealloc();
   // calculate new size to allocate
   size_t size = mb * 1024  * 1024;
   // setup to allocate it alligned to a power of 2
   constexpr size_t alignment = 2 * 1024 * 1024;
   size_t allocSize = ((size + alignment - 1) / alignment) * alignment;
-  entries = static_cast<TTentry*>(std::aligned_alloc(alignment, allocSize));
+  entries = static_cast<TTentry*>(aligned_alloc(alignment, allocSize));
   // setup size and num entries in class
   sizeEntries = allocSize;
   numEntries = allocSize / sizeof(TTentry);
@@ -66,7 +66,7 @@ void TTtable::clear() {
 }
 
 void TTtable::dealloc() {
-  free(entries);
+  aligned_free(entries);
 }
 
 

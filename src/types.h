@@ -9,7 +9,33 @@
 # include <ctime>
 # include <string>
 # include <cstdint>
-# include <limits.h>
+# include <climits>
+# include <cassert>
+
+// define allocation and free for windows or linux
+inline void* aligned_alloc(size_t alignment, size_t size) {
+  // make sure size of the allocation is larger than the alignment
+  assert(size > alignment);
+  // also make sure neither are zero
+  assert(alignment && size);
+  // setup os specific allocations
+  #if defined(_WIN32) || defined(WIN32)
+  return _aligned_malloc(size, alignment);
+  #else
+  return std::aligned_alloc(alignment, size);
+  #endif
+}
+
+inline void aligned_free(void* ptr) {
+  // assert pointer exists
+  assert(ptr);
+  // setup os specific free calls
+  #if defined(_WIN32) || defined(WIN32)
+  _aligned_free(ptr);
+  #else
+  free(ptr);
+  #endif
+}
 
 namespace Luna {
 
