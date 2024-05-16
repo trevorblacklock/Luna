@@ -189,13 +189,17 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
 
     int evalScore = prevScore - score;
 
-    if (id == 0 && this->infoStrings) {
-      print_info_string(this, d, score, sd->pvTable(0));
+    if (!tm->time_to_iterate(timeScore, evalScore)) {
+      // only print an info string before exiting if a pv exists
+      if (id == 0 && this->infoStrings && sd->pvTable(0).length != 0) {
+        print_info_string(this, d, score, sd->pvTable(0));
+      }
+      // now break out of loop
+      break;
     }
 
-    if (!tm->time_to_iterate(timeScore, evalScore)) {
-      std::cout << "here" << std::endl;
-      break;
+    if (id == 0 && this->infoStrings) {
+      print_info_string(this, d, score, sd->pvTable(0));
     }
   }
   // when main thread is done return best move
@@ -237,15 +241,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     timeMan->stop_search();
   }
 
-  // update the seldepth
-  if (ply > sd->searchInfo.seldepth)
-    sd->searchInfo.seldepth = ply;
-
   // reset the pv table length
   sd->pvTable(ply).length = 0;
-
-  // increment nodes
-  sd->searchInfo.nodes++;
 
   // check for a force stop
   if (timeMan->stop) {
@@ -262,6 +259,13 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     return beta;
   }
 
+  // update the seldepth
+  if (ply > sd->searchInfo.seldepth)
+    sd->searchInfo.seldepth = ply;
+
+  // increment nodes
+  sd->searchInfo.nodes++;
+
   // go into a q-search if depth reaches zero
   if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
     return qsearch(pos, sd, alpha, beta, pvNode);
@@ -269,7 +273,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // get all the search info needed
   History*     hd         = &sd->historyData;
   U64          key        = pos->key();
-  int          oalpha     = alpha;
   int          bestScore  = -VALUE_INFINITE;
   int          score      = -VALUE_INFINITE;
   Move         bestMove   = MOVE_NONE;
@@ -305,7 +308,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // so we don't have to re-search the same position
   TTentry* tten = TT.get(key, found);
   int ttScore = found ? score_from_tt(tten->score(), ply) : VALUE_NONE;
-  ttMove = found ? tten->move() : MOVE_NONE;
+  ttMove = found ? (Move)tten->move() : (Move)MOVE_NONE;
 
   assert(ttScore == VALUE_NONE || (ttScore < VALUE_INFINITE && ttScore > -VALUE_INFINITE));
 
@@ -482,9 +485,6 @@ moves_loop:
   int quiets     = 0;
   int moveCnt    = 0;
 
-  U64 prevNodes = sd->searchInfo.nodes;
-  U64 bestNodes = 0;
-
   // loop through all the pseudo-legal moves until none remain,
   // legality is checked before playing a move rather than before
   // to increase the performance when looping through large lists
@@ -504,7 +504,6 @@ moves_loop:
     bool isCapture = pos->is_capture(m);
     bool isPromotion = pos->is_promotion(m);
     bool givesCheck = pos->gives_check(m);
-    int see = isCapture ? mg->get_see() : 1;
     bool quiet = !isCapture && !isPromotion && !givesCheck;
     int newDepth = depth - 1;
     int extension = 0;
@@ -717,9 +716,6 @@ moves_loop:
         sd->pvTable.update(ply, m);
       }
 
-      // write the amount of nodes searched in this recursive layer
-      bestNodes = sd->searchInfo.nodes - nodeCount;
-
       // check for a beta-cutoff
       if (score >= beta) {
         // if not at the root node update the ttpv
@@ -778,10 +774,8 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
   int      bestScore = -VALUE_INFINITE;
   int      standpat;
   int      ttDepth   = 0;
-  int      node      = BOUND_UPPER;
   Move     bestMove  = MOVE_NONE;
   bool     inCheck   = pos->checks();
-  Color    us        = pos->get_side();
 
   // check if theres a move that causes a draw
   if (pos->is_draw() || ply >= MAX_INTERNAL_PLY) {
@@ -862,13 +856,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
       continue;
 
     // init some info about the move
-    Square from = from_sq(m);
-    Square to = to_sq(m);
-    Piece pc = pos->pc_sq(from);
-    bool isCapture = pos->is_capture(m);
-    bool isPromotion = pos->is_promotion(m);
     bool givesCheck = pos->gives_check(m);
-    bool quiet = !isCapture && !isPromotion && !givesCheck;
 
     moveCnt++;
 
@@ -972,7 +960,6 @@ void update_history(History *hd, Position *pos, MoveGen *mg, Move bestMove, int 
   Color us      = pos->get_side();
   Piece pc      = pos->piece_moved(bestMove);
   Square to     = to_sq(bestMove);
-  Square from   = from_sq(bestMove);
   PieceType cap = piece_type(pos->pc_sq(to));
 
   // calculate the bonus
