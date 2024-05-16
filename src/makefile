@@ -19,8 +19,10 @@ MINOR = 2
 
 # Source code directory
 ROOT := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-SRCS := $(ROOT)/*.cpp $(ROOT)/nn/*.cpp
-OBJS := $(notdir $(SRCS:.cpp=.o))
+SRCS := attacks.cpp bitboard.cpp history.cpp main.cpp misc.cpp movegen.cpp position.cpp \
+				pv.cpp search.cpp timeman.cpp tt.cpp uci.cpp nn/accumulator.cpp nn/evaluator.cpp \
+				nn/layers.cpp
+OBJS :=  $(SRCS:.cpp=.o)
 
 # Default network name
 EVALFILE := $(ROOT)/../networks/luna-00000000.nn
@@ -60,13 +62,13 @@ avx512 = no
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wcast-qual -fno-exceptions -pedantic -Wextra -Wshadow \
 						-fno-aggressive-loop-optimizations -DMINOR_VERSION=$(MINOR) \
-						-DMAJOR_VERSION=$(MAJOR) -DEVALFILE=\"$(EVALFILE)\"
-PREPGOFLAGS = -fprofile-generate -lgcov
-POSTPGOFLAGS = -fprofile-use -fno-peel-loops -fno-tracer -lgcov
+						-DMAJOR_VERSION=$(MAJOR) -DEVALFILE=\"$(EVALFILE)\" $(EXTRAFLAGS)
+PREPGOFLAGS = '-fprofile-generate -lgcov'
+POSTPGOFLAGS = '-fprofile-use -fno-peel-loops -fno-tracer -lgcov'
 
 # 2.2 OS specific flags use pthread on windows and lpthread on linux
 ifeq ($(OS), Windows_NT)
-	CXXFLAGS += -static -pthread
+	CXXFLAGS += -static -lpthread
 else
 ifeq ($(UNAME), Linux)
 	CXXFLAGS += -lpthread -static -static-libgcc -static-libstdc++
@@ -163,7 +165,7 @@ endif
 
 # 3.2 optimization settings
 ifeq ($(optimize), yes)
-	CXXFLAGS += -Ofast -ffloat-store
+	CXXFLAGS += -O3 -ffloat-store -funroll-loops
 endif
 
 # 3.3 SIMD and vector instructions
@@ -219,7 +221,7 @@ endif
 # 3.5 Link optimization for lto
 ifeq ($(optimize), yes)
 ifeq ($(debug), no)
-	CXXFLAGS += -flto
+	CXXFLAGS += -flto -flto-partition=one
 endif
 endif
 
@@ -271,13 +273,13 @@ help:
 
 build: net
 	@mkdir -p $(EXE_DIR)
-	$(CXX) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
+	$(MAKE) ARCH=$(ARCH) all
 
 pgo: net obj-clean pgo-clean
 	@echo ""
 	@echo "Step 1/4. Building initial executable ..."
 	@mkdir -p $(EXE_DIR)
-	$(CXX) $(PREPGOFLAGS) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
+	$(MAKE) ARCH=$(ARCH) EXTRAFLAGS=$(PREPGOFLAGS) all
 	@echo ""
 	@echo "Step 2/4. Running benchmark ..."
 	$(EXE_PGO) bench > PGOBENCH.out 2>&1
@@ -285,19 +287,29 @@ pgo: net obj-clean pgo-clean
 	@echo ""
 	@echo "Step 3/4. Building optimized executable ..."
 	$(MAKE) ARCH=$(ARCH) obj-clean
-	$(CXX) $(POSTPGOFLAGS) $(CXXFLAGS) $(SRCS) -o $(EXE) > /dev/null 2>&1
+	$(MAKE) ARCH=$(ARCH) EXTRAFLAGS=$(POSTPGOFLAGS) all
 	@echo ""
 	@echo "Step 4/4. Cleaning up ..."
 	$(MAKE) ARCH=$(ARCH) pgo-clean
 
 obj-clean:
-	@rm -f *.o /nn/*.o
+	@rm -rf *.o nn/*.o
 
 pgo-clean:
-	@rm -rf pgodir
-	@rm -f bench.txt ../bin/*.gcda ../bin/*.gcno PGOBENCH.out
+	@rm -rf *.gcda *.gcno nn/*.gcda nn/*.gcno PGOBENCH.out
+
+clean: obj-clean pgo-clean
+	@rm -rf ../bin/*
 
 default:
 	help
+
+all: $(OBJS) $(EXE)
+
+$(EXE): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
+
+$(OBJS): %.o : %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 net:
