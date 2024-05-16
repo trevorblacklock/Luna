@@ -116,7 +116,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   }
   // setup score
   int score = 0;
-  int prevscore = 0;
+  int prevScore = 0;
   // create new thread object for each thread
   SearchData *sd = &ths[id];
   // create new position object using the one passed to this function
@@ -134,7 +134,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     if (d < 6) {
       sd->rootDepth = d;
       score = alphabeta(&newPos, sd, -VALUE_INFINITE, VALUE_INFINITE, d, false);
-      prevscore = score;
+      prevScore = score;
     }
     else {
       // give a size for our aspiration window to change
@@ -183,9 +183,19 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
         }
       }
     }
-    if (!tm->can_continue()) break;
+    // compute a score to calculate the time left
+    int timeScore = sd->historyData.spentEffort[from_sq(sd->historyData.bestMove)][to_sq(sd->historyData.bestMove)]
+                  * 100 / std::max(1ULL, this->get_nodes());
+
+    int evalScore = prevScore - score;
+
     if (id == 0 && this->infoStrings) {
       print_info_string(this, d, score, sd->pvTable(0));
+    }
+
+    if (!tm->time_to_iterate(timeScore, evalScore)) {
+      std::cout << "here" << std::endl;
+      break;
     }
   }
   // when main thread is done return best move
@@ -218,6 +228,10 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   bool pvNode = (beta - alpha) != 1;
   int ply = pos->get_ply();
 
+  assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
+  assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
+  assert(depth >= 0 && depth < MAX_PLY);
+
   // force a stop for node limit
   if (timeMan->node_limit.enabled && timeMan->node_limit.val <= sd->searchInfo.nodes) {
     timeMan->stop_search();
@@ -230,14 +244,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // reset the pv table length
   sd->pvTable(ply).length = 0;
 
-  // go into a q-search if depth reaches zero
-  if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
-    return qsearch(pos, sd, alpha, beta, pvNode);
-
-  assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
-  assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
-  assert(depth >= 0 && depth < MAX_PLY);
-
   // increment nodes
   sd->searchInfo.nodes++;
 
@@ -245,7 +251,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   if (timeMan->stop) {
     sd->searchInfo.timeout = true;
     // clamp beta to be within search bounds
-    return std::clamp(beta, -VALUE_INFINITE + 1, VALUE_INFINITE - 1);
+    return beta;
   }
 
   // if time is out we fail high to stop the search and we only check every 1024 nodes
@@ -253,8 +259,12 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     sd->searchInfo.timeout = true;
     timeMan->stop_search();
     // clamp beta to be within search bounds
-    return std::clamp(beta, -VALUE_INFINITE + 1, VALUE_INFINITE - 1);
+    return beta;
   }
+
+  // go into a q-search if depth reaches zero
+  if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
+    return qsearch(pos, sd, alpha, beta, pvNode);
 
   // get all the search info needed
   History*     hd         = &sd->historyData;
@@ -539,6 +549,11 @@ moves_loop:
         continue;
     }
 
+    // set the spent effort
+    if (!ply && depth == 1) {
+      hd->set_spent_effort(from, to, 0);
+    }
+
     // singular move extensions
     // make sure cannot extend too far
     if (ply < sd->rootDepth * 2) {
@@ -678,6 +693,9 @@ moves_loop:
     mg->add_searched(m);
 
     assert(score > -VALUE_INFINITE && score < VALUE_INFINITE);
+
+    if (!ply)
+      hd->update_spent_effort(from, to, sd->searchInfo.nodes - nodeCount);
 
     // increment the legalmoves of the position
     legalMoves++;

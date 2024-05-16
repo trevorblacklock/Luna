@@ -47,6 +47,7 @@ struct History {
   void set_continuation_hist(Piece pc, Square sq, int ply, int val);
   void set_max_improvement(Square from, Square to, int value);
   void set_capture_hist(Position *p, Move m, int val);
+  void set_spent_effort(Square s1, Square s2, int64_t val);
   void reset_killers(Color side, int ply);
   // checks against historic eval and returns if it is improving
   bool is_improving(Color side, int eval, int ply) const;
@@ -54,6 +55,7 @@ struct History {
   void update_butterfly(Color side, Move m, int bonus);
   void update_continuation(int ply, Piece pc, Square sq, int bonus);
   void update_captures(Piece pc, Square to, PieceType cap, int bonus);
+  void update_spent_effort(Square s1, Square s2, int64_t val);
 };
 
 }

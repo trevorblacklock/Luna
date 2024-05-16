@@ -102,6 +102,10 @@ void History::set_max_improvement(Square from, Square to, int value) {
   this->maxImprovement[from][to] = value;
 }
 
+void History::set_spent_effort(Square s1, Square s2, int64_t val) {
+  this->spentEffort[s1][s2] = val;
+}
+
 void History::reset_killers(Color side, int ply) {
   this->killers[side][ply + 2][0] = 0;
   this->killers[side][ply + 2][1] = 0;
@@ -156,6 +160,10 @@ void History::update_continuation(int ply, Piece pc, Square sq, int bonus) {
 void History::update_captures(Piece pc, Square to, PieceType cap, int bonus) {
   this->captureHistory[pc][to][cap] +=
     bonus - captureHistory[pc][to][cap] * abs(bonus) / 10000;
+}
+
+void History::update_spent_effort(Square s1, Square s2, int64_t val) {
+  this->spentEffort[s1][s2] += val;
 }
 
 }

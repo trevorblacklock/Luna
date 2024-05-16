@@ -38,7 +38,7 @@ void TimeMan::set_match_time_limit(U64 time, U64 inc, int mtg) {
   // if low time and no increment then compress the search time further to account for delays
   if (time < 1000 && !inc) time *= 0.7;
   // upper limit to search should not be more than a third of the time left
-  U64 upper_bound = time / 3.0;
+  U64 upper_bound = time / 2.0;
   // clamp the moves to go to a max of 50
   mtg = mtg > 50 ? 50 : mtg;
   // find the move time
@@ -50,8 +50,10 @@ void TimeMan::set_match_time_limit(U64 time, U64 inc, int mtg) {
 
   // subtract the move overhead from the time
   // make sure to give at least 10ms of time to run a search
-  move_time = std::max(static_cast<U64>(10), move_time - move_overhead);
-  upper_bound = std::max(static_cast<U64>(10), upper_bound - move_overhead);
+  if (overhead) {
+    move_time = std::max(static_cast<U64>(10), move_time - move_overhead);
+    upper_bound = std::max(static_cast<U64>(10), upper_bound - move_overhead);
+  }
 
   // set the move time limit to the calculated upper bound
   set_move_time_limit(upper_bound);
