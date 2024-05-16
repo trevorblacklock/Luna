@@ -185,7 +185,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     }
     // compute a score to calculate the time left
     int timeScore = sd->historyData.spentEffort[from_sq(sd->historyData.bestMove)][to_sq(sd->historyData.bestMove)]
-                  * 100 / std::max(1ULL, this->get_nodes());
+                  * 100 / std::max((U64)1ULL, this->get_nodes());
 
     int evalScore = prevScore - score;
 
