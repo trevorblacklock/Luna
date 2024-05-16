@@ -28,20 +28,20 @@ EVALFILE := $(ROOT)/../networks/luna-00000000.nn
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 2. Configuration
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# option                | flag        	| description
+# option                | flag          | description
 #==============================================================================
-#													|
-# debug = yes/no				| -DNDEBUG 			| enable/disable debugging mode
-# optimize = yes/no				| -0fast			| enable compiler optimizations
-# popcnt = yes/no				| -DUSE_POPCNT		| use popcnt asm-instruction
-# pext = yes/no					| -DUSE_PEXT		| use pext asm-instruction
-# sse = yes/no					|	-msse			| use Intel Streaming SIMD extensions
-# sse2 = yes/no					|	-msse2			| use Intel Streaming SIMD extensions 2
-# sse3 = yes/no					| -msse3			| use Intel Streaming SIMD extensions 3
-# sse41 = yes/no				| -msse4.1			| use Intel Streaming SIMD extensions 4.1
-# sse42 = yes/no				| -msse4.2			| use Intel Streaming SIMD extensions 4.2
-# avx2 = yes/no					| -mavx2			| use Intel Advanced Vector Instructions 2
-# avx512 = yes/no				| -mavx512bw		| use Intel Advanced Vector Instructions 512
+#                       |               |
+# debug = yes/no        | -DNDEBUG      | enable/disable debugging mode
+# optimize = yes/no     | -0fast        | enable compiler optimizations
+# popcnt = yes/no       | -DUSE_POPCNT  | use popcnt asm-instruction
+# pext = yes/no         | -DUSE_PEXT    | use pext asm-instruction
+# sse = yes/no          |	-msse         | use Intel Streaming SIMD extensions
+# sse2 = yes/no         |	-msse2        | use Intel Streaming SIMD extensions 2
+# sse3 = yes/no         | -msse3        | use Intel Streaming SIMD extensions 3
+# sse41 = yes/no        | -msse4.1      | use Intel Streaming SIMD extensions 4.1
+# sse42 = yes/no        | -msse4.2      | use Intel Streaming SIMD extensions 4.2
+# avx2 = yes/no         | -mavx2        | use Intel Advanced Vector Instructions 2
+# avx512 = yes/no       | -mavx512bw    | use Intel Advanced Vector Instructions 512
 #==============================================================================
 
 # 2.1 compilation options
