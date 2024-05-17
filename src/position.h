@@ -52,11 +52,11 @@ private:
 
   std::vector<PositionInfo> PosHistory;
 
-
-
   void update_checks(); // updates position info for checks and pins
 
 public:
+
+  static void init();
 
   NeuralNet::Evaluator eval;
 
@@ -96,6 +96,7 @@ public:
   U64 checker_sq(PieceType pt) const;
   int fifty() const;
   int repetition() const;
+  int plies_from_null() const;
   Color get_side() const;
   Square get_ksq(Color c) const;
   bool is_on_semiopen_file(Color c, Square s) const;
@@ -123,6 +124,7 @@ public:
   U64 pawn_key() const;
   void update_repetitions();
   bool is_draw() const;
+  bool has_game_cycle(int ply) const;
   void change_side();
 
   // Static exchange evaluation
@@ -235,6 +237,10 @@ inline int Position::fifty() const {
 
 inline int Position::repetition() const {
   return get_pos()->repetition;
+}
+
+inline int Position::plies_from_null() const {
+  return get_pos()->pliesFromNull;
 }
 
 inline Color Position::get_side() const {

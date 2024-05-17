@@ -266,6 +266,14 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   // increment nodes
   sd->searchInfo.nodes++;
 
+  // check if there is a move that draws by repetition
+  if (ply && alpha < VALUE_DRAW && pos->has_game_cycle(ply)) {
+    alpha = 8 - (sd->searchInfo.nodes & 0xF);
+    if (alpha >= beta) {
+      return alpha;
+    }
+  }
+
   // go into a q-search if depth reaches zero
   if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
     return qsearch(pos, sd, alpha, beta, pvNode);

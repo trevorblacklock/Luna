@@ -5,6 +5,7 @@
 # include "nn/evaluator.h"
 
 # include <string>
+# include <array>
 # include <sstream>
 # include <iostream>
 # include <climits>
@@ -12,6 +13,9 @@
 # include <algorithm>
 
 namespace Luna {
+
+constexpr Piece Pieces[] = {W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
+                            B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};
 
 std::ostream& operator<<(std::ostream& os, const Position& pos) {
 
@@ -38,6 +42,44 @@ std::ostream& operator<<(std::ostream& os, const Position& pos) {
     os << square(pop_lsb(b)) << " ";
 
   return os;
+}
+
+// Implementation of Marcel van Kervinck's and Stockfish's cuckoo algorithm
+// which detects repetition of positions for 3 fold draws. Uses hash tables
+// for the moves and positions to detect a repetition
+inline int Hs1(U64 key) { return key & 0x1fff; }
+inline int Hs2(U64 key) { return (key >> 16) & 0x1fff; }
+
+std::array<U64, 8192> cuckoo;
+std::array<Move, 8192> cuckooMove;
+
+// initialize the cuckoo tables
+void Position::init() {
+  // ensure tables are filled with known values
+  cuckoo.fill(0);
+  cuckooMove.fill(MOVE_NONE);
+
+  // loop through and setup tables
+  int count = 0;
+  for (Piece pc : Pieces)
+    for (Square s1 = A1; s1 <= H8; s1++)
+      for (Square s2 = s1 + 1; s2 <= H8; s2++)
+        if (piece_type(pc) != PAWN && Attacks::attacks_bb(piece_type(pc), s1, 0) & square_bb(s2)) {
+
+          Move m = make_move(s1, s2);
+          U64 key = Bitboard::get_hash(pc, s1) ^ Bitboard::get_hash(pc, s2) ^ Bitboard::get_hash(SIDE_KEY, SIDE_KEY);
+          int i = Hs1(key);
+
+          while (true) {
+            std::swap(cuckoo[i], key);
+            std::swap(cuckooMove[i], m);
+            if (m == MOVE_NONE)
+              break;
+            i = (i == Hs1(key)) ? Hs2(key) : Hs1(key);
+          }
+          count++;
+        }
+  assert(count == 3668);
 }
 
 Position::Position(const std::string& fen) {
@@ -770,6 +812,38 @@ void Position::update_repetitions() {
 
 bool Position::is_draw() const {
   return fifty() >= 100 || repetition() >= 2;
+}
+
+bool Position::has_game_cycle(int ply) const {
+
+  int j;
+  int size = PosHistory.size();
+  int end = std::min(fifty(), plies_from_null());
+
+  if (end < 3 || size < 3) return false;
+
+  U64 originalKey = key();
+
+  for (int i = 3; i <= end; i += 2) {
+    auto state = PosHistory.at(size - i - 1);
+    U64 moveKey = originalKey ^ state.key;
+    if ((j = Hs1(moveKey), cuckoo[j] == moveKey) || (j = Hs2(moveKey), cuckoo[j] == moveKey)) {
+      Move m = cuckooMove[j];
+      Square s1 = from_sq(m);
+      Square s2 = to_sq(m);
+
+      if (!((between_bb(s1, s2) ^ square_bb(s2)) & occ_bb())) {
+        if (ply > i) return true;
+
+        // for nodes before or at the root check that he move is a repetition
+        if (color_of(pc_sq(is_empty(s1) ? s2 : s1)) != get_side()) continue;
+
+        // for repetitions before or after root requires one more
+        if (state.repetition) return true;
+      }
+    }
+  }
+  return false;
 }
 
 int Position::game_phase() {

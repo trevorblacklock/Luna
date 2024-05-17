@@ -9,14 +9,14 @@ U64 LINE_BB[SQ_NB][SQ_NB];
 
 namespace Bitboard {
 
-U64 seed = 668097692;
+U64 seed = 1070372;
 U64 HASH_KEYS[PIECE_NB][SQ_NB];
 
 U64 random_u64() {
-  seed ^= seed << 13;
-  seed ^= seed >> 17;
-  seed ^= seed << 5;
-  return seed;
+  seed ^= seed >> 12;
+  seed ^= seed << 25;
+  seed ^= seed >> 27;
+  return seed * 2685821657736338717LL;
 }
 
 void gen_hash() {

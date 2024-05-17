@@ -63,6 +63,7 @@ void uci::loop(int argc, char* argv[]) {
   // initialize everything
   Bitboard::init();
   Attacks::init();
+  Position::init();
   NeuralNet::init();
   init_lmr();
 
