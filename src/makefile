@@ -68,7 +68,7 @@ POSTPGOFLAGS = '-fprofile-use -fno-peel-loops -fno-tracer -lgcov'
 
 # 2.2 OS specific flags use pthread on windows and lpthread on linux
 ifeq ($(OS), Windows_NT)
-	CXXFLAGS += -static -lpthread
+	CXXFLAGS += -lpthread -static 
 else
 ifeq ($(UNAME), Linux)
 	CXXFLAGS += -lpthread -static -static-libgcc -static-libstdc++
@@ -175,7 +175,7 @@ endif
 
 
 ifeq ($(avx512), yes)
-	CXXFLAGS += -mavx512f -mavx512bw
+	CXXFLAGS += -mavx512f -mavx512bw -mavx512dq
 endif
 
 ifeq ($(avx2), yes)
