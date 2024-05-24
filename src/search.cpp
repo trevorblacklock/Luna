@@ -232,6 +232,13 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   bool pvNode = (beta - alpha) != 1;
   int ply = pos->get_ply();
 
+  // reset the pv table length
+  sd->pvTable(ply).length = 0;
+
+  // go into a q-search if depth reaches zero
+  if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
+    return qsearch(pos, sd, alpha, beta, pvNode);
+
   assert(ply >= 0 && ply < MAX_INTERNAL_PLY);
   assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
   assert(depth >= 0 && depth < MAX_PLY);
@@ -240,9 +247,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
   if (timeMan->node_limit.enabled && timeMan->node_limit.val <= sd->searchInfo.nodes) {
     timeMan->stop_search();
   }
-
-  // reset the pv table length
-  sd->pvTable(ply).length = 0;
 
   // check for a force stop
   if (timeMan->stop) {
@@ -273,10 +277,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
       return alpha;
     }
   }
-
-  // go into a q-search if depth reaches zero
-  if (depth <= 0 || depth >= MAX_PLY || ply >= MAX_INTERNAL_PLY)
-    return qsearch(pos, sd, alpha, beta, pvNode);
 
   // get all the search info needed
   History*     hd         = &sd->historyData;
@@ -769,7 +769,6 @@ moves_loop:
 int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvNode) {
 
   assert(alpha >= -VALUE_INFINITE && alpha < beta && beta <= VALUE_INFINITE);
-  assert(pvNode || (alpha == beta - 1));
 
   // start with increasing the nodes searched
   sd->searchInfo.nodes++;
