@@ -172,7 +172,7 @@ void uci::bench() {
 
     // initialize a time manager, and search the move
     TimeMan manager{};
-    manager.set_depth_limit(13);
+    manager.set_depth_limit(12);
     Move best = sh.search(&bch, &manager);
 
     // grab info from search
