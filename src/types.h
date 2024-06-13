@@ -12,6 +12,11 @@
 # include <climits>
 # include <cassert>
 
+#if defined(_WIN32) || defined(WIN32)
+#include <intrin.h>
+#include <nmmintrin.h>
+#endif
+
 // define allocation and free for windows or linux
 inline void* aligned_malloc(size_t alignment, size_t size) {
   // make sure size of the allocation is larger than the alignment

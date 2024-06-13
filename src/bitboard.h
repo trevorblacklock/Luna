@@ -156,17 +156,33 @@ inline bool get_bit(U64& n, Square s) {
 }
 
 inline int popcnt(U64 b) {
+  #if defined(_WIN32) || defined(WIN32)
+  return int(_mm_popcnt_u64(b));
+  #else
   return __builtin_popcountll(b);
+  #endif
 }
 
 inline Square lsb(U64 b) {
   assert(b);
+  #if defined(_WIN32) || defined(WIN32)
+  unsigned long idx;
+  _BitScanForward64(&idx, b);
+  return Square(idx);
+  #else
   return Square(__builtin_ctzll(b));
+  #endif
 }
 
 inline Square msb(U64 b) {
   assert(b);
+  #if defined(_WIN32) || defined(WIN32)
+  unsigned long idx;
+  _BitScanReverse64(&idx, b);
+  return Square(idx);
+  #else
   return Square(__builtin_clzll(b));
+  #endif
 }
 
 inline U64 lsb_bb(U64 b) {

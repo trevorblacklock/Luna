@@ -84,4 +84,13 @@ int TTtable::hashfull() const {
   return cnt;
 }
 
+void TTtable::prefetch(U64 key) const {
+  const TTentry *idx = &entries[key & (numEntries - 1)];
+  #if defined(_WIN32) || defined(WIN32)
+  _mm_prefetch(idx, _MM_HINT_T0);
+  #else
+  __builtin_prefetch(idx);
+  #endif
+}
+
 }

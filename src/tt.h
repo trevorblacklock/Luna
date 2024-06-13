@@ -50,7 +50,7 @@ public:
   // returns an int 0 - 1000 of how full the hash table is approximately
   int hashfull() const;
   // prefetch used to cache the zobrist key for improved performance
-  void prefetch(U64 key) const {__builtin_prefetch(&entries[key & (numEntries - 1)]);}
+  void prefetch(U64 key) const;
 };
 
 extern TTtable TT;
