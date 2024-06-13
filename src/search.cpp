@@ -453,7 +453,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
 
     // loop through moves
     Move m;
-    while ((m = mg->next(false))) {
+    while ((m = mg->next(true))) {
 
       if (m == sd->extMove)
         continue;
@@ -496,7 +496,7 @@ moves_loop:
   // loop through all the pseudo-legal moves until none remain,
   // legality is checked before playing a move rather than before
   // to increase the performance when looping through large lists
-  while ((m = mg->next(false))) {
+  while ((m = mg->next(true))) {
 
     // check if we should skip this move
     if (sd->extMove == m) continue;
@@ -608,7 +608,7 @@ moves_loop:
           extension = -1;
 
         mg->init(pos, hd, ply, ttMove, PV_SEARCH);
-        m = mg->next();
+        m = mg->next(true);
       }
       // check extensions
       else if (givesCheck && depth > 9)
@@ -1020,7 +1020,7 @@ U64 Search::perft(Position *pos, Depth depth, bool root) {
   mg.init(pos);
 
   // loop through all moves
-  while ((m = mg.next())) {
+  while ((m = mg.next(true))) {
     if (root && depth <= 1)
       cnt = 1, nodes++;
     else {
