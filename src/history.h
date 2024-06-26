@@ -41,6 +41,7 @@ struct History {
   int get_max_improvement(Square from, Square to) const;
   // functions to deal with clearing and setting values
   void clear();
+  void clear_continuation();
   void set_killer(Color side, Move m, int ply);
   bool is_killer(Color side, Move m, int ply);
   void set_eval_hist(Color side, int eval, int ply);

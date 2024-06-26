@@ -71,6 +71,10 @@ void History::clear() {
   bestMove = MOVE_NONE;
 }
 
+void History::clear_continuation() {
+  memset(continuationHistory, 0, sizeof(continuationHistory));
+}
+
 void History::set_killer(Color side, Move m, int ply) {
   if (killers[side][ply][0] != m) {
     killers[side][ply][1] = killers[side][ply][0];

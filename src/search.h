@@ -73,5 +73,5 @@ int get_seldepth() const;
 void clear_hist();
 };
 // used for printing info while searching
-void print_info_string(Search *search, int depth, int score, PvLine &pv);
+void print_info_string(Search *search, int depth, int score, PvLine &pv, int bound = BOUND_NONE);
 }

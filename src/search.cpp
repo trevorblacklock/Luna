@@ -35,7 +35,7 @@ void update_history(History *hd, Position *pos, MoveGen *mg, Move bestMove, int 
 int stat_bonus(Depth d) { return std::min(357 * d - 483, 1511); }
 
 // info string stuff
-void print_info_string(Search *search, int depth, int score, PvLine &pv) {
+void print_info_string(Search *search, int depth, int score, PvLine &pv, int bound) {
   U64 nodes = search->get_nodes();
   int seldepth = search->get_seldepth();
   U64 time = search->timeMan->elapsed_time();
@@ -48,6 +48,10 @@ void print_info_string(Search *search, int depth, int score, PvLine &pv) {
     std::cout << " score mate " << (VALUE_MATE - abs(score) + 1) / 2 * (score > 0 ? 1 : -1);
   }
   else std::cout << " score cp " << score;
+  // print bound if it exists
+  if (bound) {
+    std::cout << (bound == BOUND_LOWER ? " lowerbound" : " upperbound");
+  }
   std::cout << " nodes " << nodes << " nps " << nps << " time " << time << " hashfull " << hashfull;
   std::cout << " pv";
   // if our pv line didn't get saved, usually in the case of an overflow, just print the bestmove instead
@@ -114,11 +118,14 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
       runningths.emplace_back(&Search::search, this, pos, tm, t);
     }
   }
+
   // setup score
   int score = 0;
   int prevScore = 0;
   // create new thread object for each thread
   SearchData *sd = &ths[id];
+  // clear up continuation histories prior to new search
+  sd->historyData.clear_continuation();
   // create new position object using the one passed to this function
   // this is for the threads to use individually in their search so nothing overlaps
   Position newPos{*pos};
@@ -150,8 +157,21 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
       // run the search
       score = alphabeta(&newPos, sd, alpha, beta, newDepth, false);
 
+      // make sure delta does not get too big
+      // when it does just do a search given an infinite window
+      if (delta > 500) delta = VALUE_INFINITE;
+
       // check for a force stop
       if (tm->stop) break;
+
+      // when fail low/high give an update
+      if (  this->infoStrings
+        &&  id == 0
+        &&  (score <= alpha || score >= beta)
+        && tm->elapsed_time() >= 3000) {
+
+        print_info_string(this, d, score, sd->pvTable(0), score >= beta ? BOUND_LOWER : BOUND_UPPER);
+      }
 
       if (score <= alpha) {
         beta = (alpha + beta) / 2;
@@ -159,13 +179,12 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
 
         failedHigh = 0;
       }
+
       else if (score >= beta) {
         beta = std::min(score + delta, (int)VALUE_INFINITE);
         failedHigh++;
-
-        // make sure delta does not get too big
-        if (delta > 500) delta = VALUE_INFINITE;
       }
+
       else break;
 
       delta += delta / 3;
@@ -511,6 +530,12 @@ moves_loop:
 
     // increment the move counter
     moveCnt++;
+
+    // send currmove info
+    if (ply == 0 && sd->id == 0 && timeMan->elapsed_time() >= 3000) {
+      std::cout << "info depth " << sd->rootDepth << " currmove "
+                << move(m) << " currmovenumber " << moveCnt << std::endl;
+    }
 
     int delta = beta - alpha;
     int r = reductions(depth, legalMoves, delta, sd->rootDelta);
