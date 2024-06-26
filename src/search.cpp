@@ -127,62 +127,55 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   // start iterative deepening
   int d;
   for (d = 1; d <= searchDepth; d++) {
+    int failedHigh = 0;
     // reset the pv table
     sd->pvTable.reset();
+    // reset the seldepth
+    sd->searchInfo.seldepth = 0;
     // use aspiration windows to speed up searches based on score recieved
-    // only use them past depth 6 to not interfere with the fast initial searches
-    if (d < 6) {
-      sd->rootDepth = d;
-      score = alphabeta(&newPos, sd, -VALUE_INFINITE, VALUE_INFINITE, d, false);
-      prevScore = score;
-    }
-    else {
-      // give a size for our aspiration window to change
-      int window = 10;
-      bool dropout = false;
-      // setup alpha beta and depth adjustment
-      int alpha = std::clamp(score - window, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
-      int beta = std::clamp(score + window, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
-      int newDepth = d;
-      // continue with iterative deepening search until time is out
-      while (tm->can_continue()) {
-        // set a new depth and update the searches root depth
-        newDepth = newDepth < d - 3 ? d - 3 : newDepth;
-        sd->rootDepth = newDepth;
+    // give a size for our aspiration window to change
+    // setup alpha beta and depth adjustment
+    int average = sd->averageScore;
+    int delta = 10 + average * average / 10000;
+    int alpha = std::clamp(score - delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
+    int beta = std::clamp(score + delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
 
-        // run the search
-        score = alphabeta(&newPos, sd, alpha, beta, newDepth, false);
+    // continue with iterative deepening search until time is out
+    while (tm->can_continue()) {
+      // set a new depth and update the searches root depth
+      int newDepth = std::max(1, d - failedHigh);
+      // adjust the root depth of the search
+      sd->rootDepth = newDepth;
 
-        // check for a dropout
-        if (dropout) break;
+      // run the search
+      score = alphabeta(&newPos, sd, alpha, beta, newDepth, false);
 
-        // update the search window
-        window += window;
+      // check for a force stop
+      if (tm->stop) break;
 
-        // don't increase window past 500
-        if (window > 500)
-          window = VALUE_MATE_IN;
+      if (score <= alpha) {
+        beta = (alpha + beta) / 2;
+        alpha = std::max(score - delta, -(int)VALUE_INFINITE);
 
-        // adjust alpha and beta depending on the search dropout
-        if (score >= beta) {
-          beta += window;
-          newDepth--;
-        }
-        else if (score <= alpha) {
-          beta = (alpha + beta) / 2;
-          alpha -= window;
-        }
-        else break;
-
-        // before iterating back ensure alpha and beta are within infinite bounds
-        // if alpha and beta are updated beyond bounds can clamp them and flag for final search
-        if (beta > VALUE_INFINITE || alpha < -VALUE_INFINITE) {
-          dropout = true;
-          beta = std::min(beta, (int)VALUE_INFINITE);
-          alpha = std::max(alpha, -(int)VALUE_INFINITE);
-        }
+        failedHigh = 0;
       }
+      else if (score >= beta) {
+        beta = std::min(score + delta, (int)VALUE_INFINITE);
+        failedHigh++;
+
+        // make sure delta does not get too big
+        if (delta > 500) delta = VALUE_INFINITE;
+      }
+      else break;
+
+      delta += delta / 3;
+
+      assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
     }
+
+    // only check timings on the main thread
+    if (id) continue;
+
     // compute a score to calculate the time left
     int timeScore = sd->historyData.spentEffort[from_sq(sd->historyData.bestMove)][to_sq(sd->historyData.bestMove)]
                   * 100 / std::max((U64)1ULL, this->get_nodes());
@@ -198,7 +191,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
       break;
     }
 
-    if (id == 0 && this->infoStrings) {
+    if (this->infoStrings) {
       print_info_string(this, d, score, sd->pvTable(0));
     }
   }
@@ -632,7 +625,8 @@ moves_loop:
     // adjust the reductions based on multiple heuristics
     // first calculate the history and adjust the reduction
     int history = hd->get_history(pos, m);
-    r -= history / (10000 + 4000 * (depth > 5 && depth < 23));
+
+    r -= history / 10000;
 
     // reduce reduction at pvnode
     r -= pvNode;
@@ -660,8 +654,7 @@ moves_loop:
     // and the position cannot have been on the pv, a capture or a followup from a single move position
     if (ply
       && depth >= 2
-      && moveCnt > 1 + (pvNode && ply <= 1)
-      && (!sd->ttPv[ply] || !isCapture || (cutNode && sd->moveGen[ply - 1].leaf_size() > 1))) {
+      && moveCnt > 1 + (pvNode && ply <= 1)) {
 
       // do the search with reductions applied
       score = -alphabeta(pos, sd, -alpha - 1, -alpha, d, true);
@@ -672,7 +665,7 @@ moves_loop:
         score = -alphabeta(pos, sd, -alpha - 1, -alpha, newDepth, !cutNode);
 
         // calculate a bonus to update continuation histories
-        int bonus = score <= alpha ? stat_bonus(newDepth)
+        int bonus = score <= alpha ? -stat_bonus(newDepth)
                   : score >= beta ? stat_bonus(newDepth) : 0;
 
         update_continuation_histories(hd, pos, pc, to, bonus);
@@ -701,8 +694,13 @@ moves_loop:
 
     assert(score > -VALUE_INFINITE && score < VALUE_INFINITE);
 
-    if (!ply)
+    if (!ply) {
+      // use the root depth to update the average scores
+      sd->averageScore = (sd->averageScore != -VALUE_INFINITE) ? (2 * score + sd->averageScore) / 3 : score;
+
+      // update the effort for time heuristics
       hd->update_spent_effort(from, to, sd->searchInfo.nodes - nodeCount);
+    }
 
     // increment the legalmoves of the position
     legalMoves++;
@@ -900,7 +898,7 @@ int Search::qsearch(Position *pos, SearchData *sd, int alpha, int beta, bool pvN
     }
   }
 
-  // check for a draw by stalemate or checkmate
+  // check for a checkmate
   if (inCheck && bestScore == -VALUE_INFINITE) {
     assert(!mg->leaf_size());
     return mated_in(ply);

@@ -35,6 +35,7 @@ struct SearchData {
   SearchInfo  searchInfo;
   History     historyData;
   int         doubleExtensions[MAX_INTERNAL_PLY + 1] = {0};
+  int         averageScore = -VALUE_INFINITE;
   MoveGen     moveGen[MAX_INTERNAL_PLY + 1];
 
   SearchData();
