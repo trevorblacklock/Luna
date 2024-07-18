@@ -10,6 +10,21 @@
 
 namespace Luna {
 
+struct RootMove {
+  // store data relevant to root moves in the search tree
+  Move m;
+
+  bool operator==(const Move& move) { return move == m; }
+
+  int averageScore = -VALUE_INFINITE;
+  int score = -VALUE_INFINITE;
+  int prevScore = -VALUE_INFINITE;
+  int seldepth = 0;
+
+  // quick constructor
+  RootMove(Move move)  {this->m = move; }
+};
+
 struct SearchInfo {
   // store data relevant to the previous search
   U64   nodes;
@@ -35,8 +50,9 @@ struct SearchData {
   SearchInfo  searchInfo;
   History     historyData;
   int         doubleExtensions[MAX_INTERNAL_PLY + 1] = {0};
-  int         averageScore = -VALUE_INFINITE;
   MoveGen     moveGen[MAX_INTERNAL_PLY + 1];
+
+  std::vector<RootMove> rootMoves;
 
   SearchData();
   explicit SearchData(int ID);
@@ -52,6 +68,7 @@ int threadcnt = 1;
 bool infoStrings = true;
 std::vector<std::thread> runningths;
 std::vector<SearchData> ths;
+std::vector<RootMove> rootMoves;
 public:
 TimeMan* timeMan;
 SearchInfo searchInfo;

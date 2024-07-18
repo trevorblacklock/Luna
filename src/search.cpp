@@ -102,17 +102,28 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   // if this function is called with the main thread (from UCI) then setup other threads
   // also setup base search paramaters and clear thread data for all threads
   if (id == 0) {
+    // store root moves
+    MoveGen mg;
+    mg.init(pos);
+    Move m;
+
+    // loop through the root moves in this position and store them
+    while ((m = mg.next())) {
+      ths[0].rootMoves.emplace_back(RootMove(m));
+    }
     // setup the time manager
     timeMan = tm;
     // setup TT for new search
     TT.new_search();
     // reset each thread
     for (size_t i = 0; i < ths.size(); i++) {
+      ths[i] = ths[0];
       ths[i].id = i;
       ths[i].searchInfo.nodes = 0;
       ths[i].searchInfo.seldepth = 0;
       ths[i].searchInfo.timeout = false;
     }
+
     // setup this function to be called with all other threads except the main one
     for (int t = 1; t < threadcnt; t++) {
       runningths.emplace_back(&Search::search, this, pos, tm, t);
@@ -120,12 +131,9 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   }
 
   // setup score
-  int score = 0;
-  int prevScore = 0;
+  int score = -VALUE_INFINITE;
   // create new thread object for each thread
   SearchData *sd = &ths[id];
-  // clear up continuation histories prior to new search
-  sd->historyData.clear_continuation();
   // create new position object using the one passed to this function
   // this is for the threads to use individually in their search so nothing overlaps
   Position newPos{*pos};
@@ -133,6 +141,8 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   sd->searchInfo.timeout = false;
   // start iterative deepening
   int d;
+  int average = -VALUE_INFINITE;
+
   for (d = 1; d <= searchDepth; d++) {
     int failedHigh = 0;
     // reset the pv table
@@ -142,10 +152,9 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     // use aspiration windows to speed up searches based on score recieved
     // give a size for our aspiration window to change
     // setup alpha beta and depth adjustment
-    int average = sd->averageScore;
-    int delta = 10 + average * average / 10000;
-    int alpha = std::clamp(score - delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
-    int beta = std::clamp(score + delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
+    int delta = 15 + average * average / 10000;
+    int alpha = std::clamp(average - delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
+    int beta = std::clamp(average + delta, -(int)VALUE_INFINITE, (int)VALUE_INFINITE);
 
     // continue with iterative deepening search until time is out
     while (tm->can_continue()) {
@@ -153,13 +162,20 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
       int newDepth = std::max(1, d - failedHigh);
       // adjust the root depth of the search
       sd->rootDepth = newDepth;
+      sd->rootDelta = beta - alpha;
+
+      // find the bestmove if it exists
+      if (sd->historyData.bestMove != MOVE_NONE && score != -VALUE_INFINITE) {
+        RootMove& rm = *std::find(sd->rootMoves.begin(), sd->rootMoves.end(), sd->historyData.bestMove);
+        average = rm.averageScore;
+      }
 
       // run the search
       score = alphabeta(&newPos, sd, alpha, beta, newDepth, false);
 
-      // make sure delta does not get too big
-      // when it does just do a search given an infinite window
-      if (delta > 500) delta = VALUE_INFINITE;
+      // set previous scores in root moves
+      for (RootMove& rm : sd->rootMoves)
+        rm.prevScore = rm.score;
 
       // check for a force stop
       if (tm->stop) break;
@@ -199,7 +215,7 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     int timeScore = sd->historyData.spentEffort[from_sq(sd->historyData.bestMove)][to_sq(sd->historyData.bestMove)]
                   * 100 / std::max((U64)1ULL, this->get_nodes());
 
-    int evalScore = prevScore - score;
+    int evalScore = average - score;
 
     if (!tm->time_to_iterate(timeScore, evalScore)) {
       // only print an info string before exiting if a pv exists
@@ -316,9 +332,6 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     alpha = std::max(mated_in(ply), alpha);
     beta = std::min(mate_in(ply + 1), beta);
     if (alpha >= beta) return alpha;
-  }
-  else {
-    sd->rootDelta = beta - alpha;
   }
 
   // set double extensions for singular move extensions
@@ -532,7 +545,7 @@ moves_loop:
     moveCnt++;
 
     // send currmove info
-    if (ply == 0 && sd->id == 0 && timeMan->elapsed_time() >= 3000) {
+    if (ply == 0 && sd->id == 0 && this->infoStrings && timeMan->elapsed_time() >= 3000) {
       std::cout << "info depth " << sd->rootDepth << " currmove "
                 << move(m) << " currmovenumber " << moveCnt << std::endl;
     }
@@ -649,7 +662,9 @@ moves_loop:
 
     // adjust the reductions based on multiple heuristics
     // first calculate the history and adjust the reduction
-    int history = hd->get_history(pos, m);
+    int history = 2 * hd->get_butterfly(us, m)
+                + hd->get_continuation_hist(pc, to, ply - 1)
+                + hd->get_continuation_hist(pc, to, ply - 2) - 2000;
 
     r -= history / 10000;
 
@@ -721,7 +736,18 @@ moves_loop:
 
     if (!ply) {
       // use the root depth to update the average scores
-      sd->averageScore = (sd->averageScore != -VALUE_INFINITE) ? (2 * score + sd->averageScore) / 3 : score;
+      RootMove& rm = *std::find(sd->rootMoves.begin(), sd->rootMoves.end(), m);
+
+      rm.averageScore = (rm.averageScore != -VALUE_INFINITE) ? (2 * score + rm.averageScore) / 3 : score;
+
+      // update the score while here
+      if (moveCnt == 1 || score > alpha) {
+        rm.score = score;
+        rm.seldepth = sd->searchInfo.seldepth;
+      }
+      else {
+        rm.score = -VALUE_INFINITE;
+      }
 
       // update the effort for time heuristics
       hd->update_spent_effort(from, to, sd->searchInfo.nodes - nodeCount);
@@ -737,8 +763,7 @@ moves_loop:
       bestMove = m;
 
       // check for low depth search and rootnode to update alpha and global bestmove
-      if (!ply && (timeMan->can_continue() || depth <= 2) && sd->id == 0) {
-        alpha = bestScore;
+      if (!ply && (timeMan->can_continue() || depth <= 2)) {
         hd->bestMove = m;
       }
 
@@ -749,12 +774,16 @@ moves_loop:
 
       // check for a beta-cutoff
       if (score >= beta) {
-        // if not at the root node update the ttpv
-        if (ply) sd->ttPv[ply] = sd->ttPv[ply] || (sd->ttPv[ply - 1] && depth > 3);
+
+        if (!pvNode && std::abs(bestScore) < VALUE_TB_WIN
+            && std::abs(beta) < VALUE_TB_WIN
+            && std::abs(alpha) < VALUE_TB_WIN)
+          bestScore = (bestScore * depth + beta) / (depth + 1);
+
         // if there is no extension move save the score to the TT
         if (!sd->extMove && !sd->searchInfo.timeout) {
           // give the entry a lower bound since we failed low
-          TT.save(key, depth, score_to_tt(score, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
+          TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
         }
         // update the move histories
         update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
@@ -773,6 +802,9 @@ moves_loop:
   // if there are no legal moves then it's either stalemate or checkmate
   // we can find out from checking if we are in check or not
   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
+
+  else if (bestMove)
+    update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
 

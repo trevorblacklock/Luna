@@ -33,11 +33,11 @@ int History::get_history(Position *p, Move m) const {
 
     // main histories
     val = 2 * get_butterfly(us, m);
-    val += 2 * get_continuation_hist(pc, to, ply);
-    val += get_continuation_hist(pc, to, ply - 1);
-    val += get_continuation_hist(pc, to, ply - 2) / 4;
-    val += get_continuation_hist(pc, to, ply - 3);
-    val += get_continuation_hist(pc, to, ply - 5);
+    val += 2 * get_continuation_hist(pc, to, ply - 1);
+    val += get_continuation_hist(pc, to, ply - 2);
+    val += get_continuation_hist(pc, to, ply - 3) / 4;
+    val += get_continuation_hist(pc, to, ply - 4);
+    val += get_continuation_hist(pc, to, ply - 6);
 
     // bonus for landing on a check square
     val += bool(p->checker_sq(pt) & square_bb(to)) * 15000;
