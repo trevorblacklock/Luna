@@ -68,17 +68,21 @@ POSTPGOFLAGS = '-fprofile-use -fno-peel-loops -fno-tracer -lgcov'
 
 # 2.2 OS specific flags use pthread on windows and lpthread on linux
 ifeq ($(OS), Windows_NT)
-	CXXFLAGS += -lpthread -static 
+	CXXFLAGS += -lpthread -static
 else
 ifeq ($(UNAME), Linux)
 	CXXFLAGS += -lpthread -static -static-libgcc -static-libstdc++
 endif
 endif
 
-# 2.3 Arch specific flags
+# 2.3.1 Arch specific flags
 ifeq ($(ARCH),)
 	ARCH = native
 	CXXFLAGS += -march=native
+endif
+
+ifeq ($(ARCH), native)
+	override ARCH := $(shell ../scripts/get_native_properties.sh)
 endif
 
 ifeq ($(findstring x86-64, $(ARCH)), x86-64)
