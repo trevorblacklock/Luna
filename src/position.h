@@ -110,6 +110,7 @@ public:
   bool is_capture(Move m) const;
   bool is_promotion(Move m) const;
   void do_move(Move m, bool prefetch = false);
+  PositionInfo* get_previous_position(int ply = 1);
   Move get_previous_move(int ply = 1) const;
   Move get_current_move() const;
   Piece get_previous_piece(int ply = 1) const;
@@ -165,6 +166,11 @@ inline Move Position::get_previous_move(int ply) const {
 inline Piece Position::get_previous_piece(int ply) const {
   if (PosHistory.size() <= size_t(ply)) return NO_PIECE;
   return PosHistory[PosHistory.size() - ply].piece;
+}
+
+inline PositionInfo* Position::get_previous_position(int ply) {
+  if (PosHistory.size() <= size_t(ply)) return nullptr;
+  return &PosHistory[PosHistory.size() - ply];
 }
 
 inline bool Position::is_capture(Move m) const {

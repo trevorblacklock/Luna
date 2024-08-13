@@ -28,9 +28,9 @@ namespace Luna {
 #define HISTORY_LMR3 4000
 #endif
 
-void update_continuation_histories(History *hd, Position *pos, Piece pc, Square to, int bonus);
-void update_quiet_stats(History *hd, Position *pos, Move m, int bonus);
-void update_history(History *hd, Position *pos, MoveGen *mg, Move bestMove, int bestScore, int depth, int beta);
+void update_continuation_histories(History *hd, Position *pos, int ply, Piece pc, Square to, int bonus);
+void update_quiet_stats(History *hd, Position *pos, int ply, Move m, int bonus);
+void update_history(History *hd, Position *pos, MoveGen *mg, int ply, Move bestMove, int depth);
 
 int stat_bonus(Depth d) { return std::min(357 * d - 483, 1511); }
 
@@ -208,9 +208,6 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
       assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
     }
 
-    // only check timings on the main thread
-    if (id) continue;
-
     // compute a score to calculate the time left
     int timeScore = sd->historyData.spentEffort[from_sq(sd->historyData.bestMove)][to_sq(sd->historyData.bestMove)]
                   * 100 / std::max((U64)1ULL, this->get_nodes());
@@ -218,15 +215,11 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
     int evalScore = average - score;
 
     if (!tm->time_to_iterate(timeScore, evalScore)) {
-      // only print an info string before exiting if a pv exists
-      if (id == 0 && this->infoStrings && sd->pvTable(0).length != 0) {
-        print_info_string(this, d, score, sd->pvTable(0));
-      }
       // now break out of loop
       break;
     }
 
-    if (this->infoStrings) {
+    if (this->infoStrings && id == 0) {
       print_info_string(this, d, score, sd->pvTable(0));
     }
   }
@@ -250,8 +243,6 @@ Move Search::search(Position *pos, TimeMan *tm, int id) {
   }
   return MOVE_NONE;
 }
-
-int  lmp[2][8] = {{0, 2, 3, 5, 8, 12, 17, 23}, {0, 3, 6, 9, 12, 18, 28, 40}};
 
 int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int depth, bool cutNode) {
 
@@ -334,6 +325,9 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     if (alpha >= beta) return alpha;
   }
 
+  hd->reset_killers(us, ply);
+  sd->cutoffCnt[ply + 2] = 0;
+
   // set double extensions for singular move extensions
   if (ply) sd->doubleExtensions[ply] = sd->doubleExtensions[ply - 1];
 
@@ -359,9 +353,9 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
     // if the tt move is quiet can update the move histories
     if (ttMove) {
       if (ttScore >= beta && !pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
-        update_quiet_stats(hd, pos, ttMove, stat_bonus(depth));
+        update_quiet_stats(hd, pos, ply, ttMove, stat_bonus(depth));
       else if (!pos->is_capture(ttMove) && !pos->is_promotion(ttMove))
-        update_continuation_histories(hd, pos, pos->pc_sq(from_sq(ttMove)), to_sq(ttMove), -stat_bonus(depth));
+        update_continuation_histories(hd, pos, ply, pos->pc_sq(from_sq(ttMove)), to_sq(ttMove), -stat_bonus(depth));
     }
     // so long as 50 move rule is not close can return the score
     if (pos->fifty() < 90) return ttScore;
@@ -457,8 +451,8 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
 
   // internal iterative reductions
   // if no tt move then reduce depth
-  if (depth >= 4 && !ttMove) {
-    depth--;
+  if (depth >= 4 && !ttMove && pvNode) {
+    depth -= 2;
   }
 
   // probcut here is based on the implementation in Stockfish
@@ -502,7 +496,7 @@ int Search::alphabeta(Position *pos, SearchData *sd, int alpha, int beta, int de
       if (qScore >= betaCut) {
         // store the score and move in the TT and return beta
         TT.save(key, depth - 3, score_to_tt(qScore, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
-        return betaCut;
+        return qScore;
       }
     }
   }
@@ -515,7 +509,6 @@ moves_loop:
   Move m;
 
   int legalMoves = 0;
-  int quiets     = 0;
   int moveCnt    = 0;
 
   // loop through all the pseudo-legal moves until none remain,
@@ -558,8 +551,6 @@ moves_loop:
       int moveDepth = std::max(1, 1 + depth - r);
 
       if (quiet) {
-        // increment the number of quiets searched
-        quiets++;
 
         // if we have searched enough quiet moves skip this move
         if (mg->can_skip()) continue;
@@ -568,7 +559,7 @@ moves_loop:
 
         // if the number of quiets searched passes a threshold
         // set a flag to not search any more quiet moves
-        if (quiets >= quietPruning) mg->skip_quiets();
+        if (moveCnt >= quietPruning) mg->skip_quiets();
 
         // prune quiet moves that are unlikely to improve alpha
         if (!inCheck
@@ -577,6 +568,11 @@ moves_loop:
             + moveDepth * FUTILITY_MARGIN + 100
             + hd->get_eval_hist(us, ply) < alpha)
           continue;
+
+        int history = hd->get_continuation_hist(pc, to, ply - 1)
+                    + hd->get_continuation_hist(pc, to, ply - 2);
+
+        if (history < -4000 * depth) continue;
       }
 
       // prune the move if it has a low see value
@@ -641,14 +637,6 @@ moves_loop:
         mg->init(pos, hd, ply, ttMove, PV_SEARCH);
         m = mg->next(true);
       }
-      // check extensions
-      else if (givesCheck && depth > 9)
-        extension = 1;
-
-      // quiet tt extensions
-      else if (pvNode && m == ttMove && hd->is_killer(us, m, ply)
-              && hd->get_continuation_hist(pc, to, ply) >= 4000)
-        extension = 1;
     }
 
     newDepth += extension;
@@ -660,28 +648,33 @@ moves_loop:
     // keep track of the amount of nodes
     U64 nodeCount = sd->searchInfo.nodes;
 
-    // adjust the reductions based on multiple heuristics
-    // first calculate the history and adjust the reduction
-    int history = 2 * hd->get_butterfly(us, m)
-                + hd->get_continuation_hist(pc, to, ply - 1)
-                + hd->get_continuation_hist(pc, to, ply - 2) - 2000;
-
-    r -= history / 10000;
+    if (sd->ttPv[ply])
+      r -= 1 + (tten->score() > alpha) + (tten->depth() >= depth);
 
     // reduce reduction at pvnode
     r -= pvNode;
 
     // increase reduction at cut nodes
-    r += 2 * cutNode;
+    if (cutNode)
+      r += 2 - (tten->depth() >= depth && sd->ttPv[ply])
+             + (!sd->ttPv[ply] && m != ttMove && hd->is_killer(us, ply, m));
 
     // increase reduction if position not improving
     r += !improving;
 
-    // decrease lmr if move is a killer
-    r -= hd->is_killer(us, m, ply);
+    if (sd->cutoffCnt[ply + 1] > 3)
+      r += 1 + !(pvNode | cutNode);
 
-    // if the history score is high set reductions to zero
-    r *= (history < 4000);
+    else if (m == ttMove)
+      r = std::max(0, r - 2);
+
+    // adjust the reductions based on multiple heuristics
+    // first calculate the history and adjust the reduction
+    int history = 2 * hd->get_butterfly(us, m)
+                + hd->get_continuation_hist(pc, to, ply - 1)
+                + hd->get_continuation_hist(pc, to, ply - 2) - 4000;
+
+    r -= history / 10000;
 
     // setup a new depth to search with using the reductions and extensions
     // never want reductions to extend search further than 1 and
@@ -694,7 +687,7 @@ moves_loop:
     // and the position cannot have been on the pv, a capture or a followup from a single move position
     if (ply
       && depth >= 2
-      && moveCnt > 1 + (pvNode && ply <= 1)) {
+      && moveCnt > 1) {
 
       // do the search with reductions applied
       score = -alphabeta(pos, sd, -alpha - 1, -alpha, d, true);
@@ -708,7 +701,8 @@ moves_loop:
         int bonus = score <= alpha ? -stat_bonus(newDepth)
                   : score >= beta ? stat_bonus(newDepth) : 0;
 
-        update_continuation_histories(hd, pos, pc, to, bonus);
+        if (bonus != 0)
+          update_continuation_histories(hd, pos, ply, pc, to, bonus);
       }
     }
 
@@ -775,18 +769,20 @@ moves_loop:
       // check for a beta-cutoff
       if (score >= beta) {
 
+        sd->cutoffCnt[ply] += 1 + !ttMove - (extension >= 2);
+
         if (!pvNode && std::abs(bestScore) < VALUE_TB_WIN
             && std::abs(beta) < VALUE_TB_WIN
             && std::abs(alpha) < VALUE_TB_WIN)
           bestScore = (bestScore * depth + beta) / (depth + 1);
 
         // if there is no extension move save the score to the TT
-        if (!sd->extMove && !sd->searchInfo.timeout) {
+        if (!sd->extMove) {
           // give the entry a lower bound since we failed low
           TT.save(key, depth, score_to_tt(bestScore, ply), hd->get_eval_hist(us, ply), m, BOUND_LOWER, sd->ttPv[ply]);
         }
         // update the move histories
-        update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
+        update_history(hd, pos, mg, ply, bestMove, depth);
 
         // return the bestscore
         return bestScore;
@@ -802,9 +798,6 @@ moves_loop:
   // if there are no legal moves then it's either stalemate or checkmate
   // we can find out from checking if we are in check or not
   if (legalMoves == 0) bestScore = sd->extMove ? alpha : inCheck ? mated_in(ply) : VALUE_DRAW;
-
-  else if (bestMove)
-    update_history(hd, pos, mg, bestMove, bestScore, depth, beta);
 
   assert(bestScore > -VALUE_INFINITE && bestScore < VALUE_INFINITE);
 
@@ -988,23 +981,22 @@ int Search::get_seldepth() const {
 // from Stockfish
 // update histories of move pairs
 // by moves at ply -1, -2, -3, -4 and -6 with curr move
-void update_continuation_histories(History *hd, Position *pos, Piece pc, Square to, int bonus) {
+void update_continuation_histories(History *hd, Position *pos, int ply, Piece pc, Square to, int bonus) {
 
   for (int i : {1, 2, 3, 4, 6}) {
     // only update first 2 if in check
     if (pos->checks() && i > 2)
       break;
     if (pos->get_previous_move(i) != MOVE_NONE) {
-      hd->update_continuation(pos->get_ply() - i + 7, pc, to, bonus / (1 + 3 * (i == 3)));
+      hd->update_continuation(ply - i + 7, pc, to, bonus / (1 + 3 * (i == 3)));
     }
   }
 }
 
 // update the quiet statistics
-void update_quiet_stats(History *hd, Position *pos, Move m, int bonus) {
+void update_quiet_stats(History *hd, Position *pos, int ply, Move m, int bonus) {
 
   Color us = pos->get_side();
-  int ply = pos->get_ply();
 
   // update killers
   // will not overwrite in case set_killers is called seperately
@@ -1013,46 +1005,43 @@ void update_quiet_stats(History *hd, Position *pos, Move m, int bonus) {
 
   // update main histories
   hd->update_butterfly(us, m, bonus);
-  update_continuation_histories(hd, pos, pos->piece_moved(m), to_sq(m), bonus);
+  update_continuation_histories(hd, pos, ply, pos->piece_moved(m), to_sq(m), bonus);
 }
 
 // update all histories upon search end
-void update_history(History *hd, Position *pos, MoveGen *mg, Move bestMove, int bestScore, int depth, int beta) {
+void update_history(History *hd, Position *pos, MoveGen *mg, int ply, Move bestMove, int depth) {
 
-  Color us      = pos->get_side();
   Piece pc      = pos->piece_moved(bestMove);
   Square to     = to_sq(bestMove);
-  PieceType cap = piece_type(pos->pc_sq(to));
+  PieceType cap;
 
   // calculate the bonus
-  int bonus = stat_bonus(depth + 1);
+  int bonus = stat_bonus(depth);
 
   if (pos->is_capture(bestMove)) {
     // increase stats for best capture move
+    cap = piece_type(pos->pc_sq(to));
     hd->update_captures(pc, to, cap, bonus);
   }
   else {
 
-    int bestBonus = (bestScore > beta + 150) ? bonus : stat_bonus(depth);
-
     // increase stats for best quiet move
-    update_quiet_stats(hd, pos, bestMove, bestBonus);
+    update_quiet_stats(hd, pos, ply, bestMove, bonus);
 
     for (int i = 0; i < mg->searched.size - 1; i++) {
-      if (!pos->is_capture(mg->searched.moves[i])) {
-        hd->update_butterfly(us, mg->searched.moves[i], -bestBonus);
-        update_continuation_histories(hd, pos,
-          pos->piece_moved(mg->searched.moves[i]),
-          to_sq(mg->searched.moves[i]), -bestBonus);
+      Move m = mg->searched.moves[i];
+      if (!pos->is_capture(m) && bestMove != m) {
+        update_quiet_stats(hd, pos, ply, m, -bonus);
       }
     }
   }
 
   // decrease stats for non best capture moves
   for (int i = 0; i < mg->searched.size - 1; i++) {
-    if (pos->is_capture(mg->searched.moves[i])) {
-      pc = pos->piece_moved(mg->captures.moves[i]);
-      to = to_sq(mg->captures.moves[i]);
+    Move m = mg->searched.moves[i];
+    if (pos->is_capture(m) && bestMove != m) {
+      pc = pos->piece_moved(m);
+      to = to_sq(m);
       cap = piece_type(pos->pc_sq(to));
       hd->update_captures(pc, to, cap, -bonus);
     }

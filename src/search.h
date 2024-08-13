@@ -49,6 +49,7 @@ struct SearchData {
   PvTable     pvTable;
   SearchInfo  searchInfo;
   History     historyData;
+  int         cutoffCnt[MAX_INTERNAL_PLY + 2] = {0};
   int         doubleExtensions[MAX_INTERNAL_PLY + 1] = {0};
   MoveGen     moveGen[MAX_INTERNAL_PLY + 1];
 
@@ -68,7 +69,6 @@ int threadcnt = 1;
 bool infoStrings = true;
 std::vector<std::thread> runningths;
 std::vector<SearchData> ths;
-std::vector<RootMove> rootMoves;
 public:
 TimeMan* timeMan;
 SearchInfo searchInfo;

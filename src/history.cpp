@@ -111,8 +111,8 @@ void History::set_spent_effort(Square s1, Square s2, int64_t val) {
 }
 
 void History::reset_killers(Color side, int ply) {
-  this->killers[side][ply + 2][0] = 0;
-  this->killers[side][ply + 2][1] = 0;
+  this->killers[side][ply + 1][0] = 0;
+  this->killers[side][ply + 1][1] = 0;
 }
 
 Move History::get_killer(Color side, int ply, int id) const {
