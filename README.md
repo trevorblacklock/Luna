@@ -5,6 +5,8 @@ this engine is able to analyze any legal chess position and determine a numeric 
 Luna does not include a GUI, and instead can comminicate with seperately developed GUI's using the Universal Chess Interface.
 Popular and free GUI's to use include [Cutechess][cutechess-link] and [Arena][arena-link].
 
+This project is currently incomplete and uses a placeholder network from [Koivisto][koivisto-link].
+
 ## Options
 Suported UCI options include:
 - Hash
@@ -41,3 +43,4 @@ compilation methods on Windows have not been tested or verified.
 [cutechess-link]: https://github.com/cutechess/cutechess
 [arena-link]: https://www.playwitharena.de/
 [msys-link]: https://www.msys2.org/
+[koivisto-link]: https://github.com/Luecx/Koivisto
